@@ -1,0 +1,27 @@
+{
+  "project_info": {
+    "project_id": "remixed-project-id",
+    "project_number": "1234567890"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1234567890:android:remixedappid",
+        "android_client_info": {
+          "package_name": "com.owlino.odxrgj"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1234567890-examplewebclientid.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "remixed-api-key"
+        }
+      ]
+    }
+  ]
+}
