@@ -1,4 +1,4 @@
-name: Build and Save APK
+name: Build APK Final
 on: [push]
 jobs:
   build:
@@ -10,12 +10,10 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-    - name: Generate Gradle Wrapper
-      run: gradle wrapper
-    - name: Build Release APK
-      run: ./gradlew assembleRelease
+    - name: Build APK using system Gradle
+      run: gradle assembleRelease
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Owlino-App-v116
+        name: Owlino-App-v116-Final
         path: app/build/outputs/apk/**/*.apk
