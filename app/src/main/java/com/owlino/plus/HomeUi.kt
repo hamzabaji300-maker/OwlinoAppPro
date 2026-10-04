@@ -27,10 +27,10 @@ class TopBarView(
     private val onSearching: (Boolean) -> Unit,
     private val onQuery: (String) -> Unit
 ) : LinearLayout(c) {
-    private val menu = Glyph(c, Glyph.MENU, UiColors.text(dark))
+    private val menu = UiGlyph(c, UiGlyph.MENU, UiColors.text(dark))
     private val iconTint = if (dark) 0xBFFFFFFF.toInt() else 0xBF000000.toInt()
-    private val clear = Glyph(c, Glyph.CLOSE, iconTint)
-    private val search = Glyph(c, Glyph.SEARCH, iconTint)
+    private val clear = UiGlyph(c, UiGlyph.CLOSE, iconTint)
+    private val search = UiGlyph(c, UiGlyph.SEARCH, iconTint)
     private val edit = EditText(c)
     var isSearching = false
         private set
@@ -66,7 +66,7 @@ class TopBarView(
             hideKeyboard()
             true
         }
-        edit.setOnFocusChangeListener { _, f -> setSearching(f) }
+        edit.setOnFocusChangeListener { _, f -> applySearching(f) }
         edit.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, st: Int, cnt: Int, a: Int) {}
             override fun onTextChanged(s: CharSequence?, st: Int, b: Int, cnt: Int) {}
@@ -100,10 +100,10 @@ class TopBarView(
         addView(ring, rl)
     }
 
-    private fun setSearching(v: Boolean) {
+    private fun applySearching(v: Boolean) {
         if (isSearching == v) return
         isSearching = v
-        menu.kind = if (v) Glyph.ARROW_BACK else Glyph.MENU
+        menu.kind = if (v) UiGlyph.ARROW_BACK else UiGlyph.MENU
         menu.invalidate()
         onSearching(v)
     }
@@ -117,7 +117,7 @@ class TopBarView(
         edit.setText("")
         requestFocus() // retire le focus du champ (ce conteneur est focusable)
         hideKeyboard()
-        setSearching(false)
+        applySearching(false)
     }
 }
 
@@ -196,7 +196,7 @@ class HomeScreenView(
         fab.background = c.oval(UiColors.surface(dark))
         fab.elevation = c.dpf(4f)
         fab.addView(
-            Glyph(c, Glyph.PENCIL, if (dark) 0xFFDCE3F9.toInt() else 0xFF1B2B5B.toInt()),
+            UiGlyph(c, UiGlyph.PENCIL, if (dark) 0xFFDCE3F9.toInt() else 0xFF1B2B5B.toInt()),
             LayoutParams(c.dp(24f), c.dp(24f), Gravity.CENTER)
         )
         val fl = LayoutParams(c.dp(56f), c.dp(56f), Gravity.BOTTOM or Gravity.END)
@@ -290,10 +290,10 @@ class HomeScreenView(
         left.gravity = Gravity.CENTER_VERTICAL
         left.addView(c.label(ch.name, 16f, UiColors.text(dark), 1), LinearLayout.LayoutParams(WC, WC))
         if (ch.bot) left.addView(botChip(), gapStart(6f))
-        if (ch.channel) left.addView(Glyph(c, Glyph.MEGA, 0xFF9CA3AF.toInt()), sized(14f, 6f))
-        if (ch.star) left.addView(Glyph(c, Glyph.STAR, 0xFFFBBF24.toInt()), sized(16f, 6f))
-        if (ch.muted) left.addView(Glyph(c, Glyph.BELL_OFF, text2), sized(15f, 6f))
-        if (ch.verified) left.addView(Glyph(c, Glyph.VERIFIED, 0), sized(16f, 6f))
+        if (ch.channel) left.addView(UiGlyph(c, UiGlyph.MEGA, 0xFF9CA3AF.toInt()), sized(14f, 6f))
+        if (ch.star) left.addView(UiGlyph(c, UiGlyph.STAR, 0xFFFBBF24.toInt()), sized(16f, 6f))
+        if (ch.muted) left.addView(UiGlyph(c, UiGlyph.BELL_OFF, text2), sized(15f, 6f))
+        if (ch.verified) left.addView(UiGlyph(c, UiGlyph.VERIFIED, 0), sized(16f, 6f))
         top.addView(left, LinearLayout.LayoutParams(0, WC, 1f))
 
         val timeBox = LinearLayout(c)
@@ -302,7 +302,7 @@ class HomeScreenView(
         if (ch.pinned) {
             timeBox.background = c.rounded((text2 and 0x00FFFFFF) or 0x1F000000, 20f)
             timeBox.setPadding(c.dp(6f), c.dp(1f), c.dp(7f), c.dp(1f))
-            val pin = Glyph(c, Glyph.PIN, 0xFF8E8E93.toInt())
+            val pin = UiGlyph(c, UiGlyph.PIN, 0xFF8E8E93.toInt())
             pin.rotation = 45f
             timeBox.addView(pin, LinearLayout.LayoutParams(c.dp(12f), c.dp(12f)))
             val gap = LinearLayout.LayoutParams(WC, WC)
@@ -334,14 +334,14 @@ class HomeScreenView(
             msgBox.addView(th, sized(20f, 0f))
             msgBox.addView(View(c), LinearLayout.LayoutParams(c.dp(4f), 1))
         } else if (ch.media == "voice") {
-            msgBox.addView(Glyph(c, Glyph.MIC, text2), sized(16f, 0f))
+            msgBox.addView(UiGlyph(c, UiGlyph.MIC, text2), sized(16f, 0f))
             msgBox.addView(View(c), LinearLayout.LayoutParams(c.dp(4f), 1))
         }
         msgBox.addView(c.label(ch.msg, 14f, UiColors.preview(dark)), LinearLayout.LayoutParams(WC, WC))
         bottom.addView(msgBox, LinearLayout.LayoutParams(0, WC, 1f))
 
         if (ch.mine) {
-            val tick = Glyph(c, if (ch.read) Glyph.DONE_ALL else Glyph.CHECK, if (ch.read) UiColors.BLUE else 0xFF9CA3AF.toInt())
+            val tick = UiGlyph(c, if (ch.read) UiGlyph.DONE_ALL else UiGlyph.CHECK, if (ch.read) UiColors.BLUE else 0xFF9CA3AF.toInt())
             val tp = LinearLayout.LayoutParams(c.dp(21f), c.dp(21f))
             tp.leftMargin = c.dp(8f)
             bottom.addView(tick, tp)
@@ -385,7 +385,7 @@ class HomeScreenView(
         box.gravity = Gravity.CENTER_VERTICAL
         box.background = c.rounded(if (dark) 0x801E3A8A.toInt() else 0xFFDBEAFE.toInt(), 4f)
         box.setPadding(c.dp(5f), c.dp(2f), c.dp(5f), c.dp(2f))
-        box.addView(Glyph(c, Glyph.BOT, tint), LinearLayout.LayoutParams(c.dp(12f), c.dp(12f)))
+        box.addView(UiGlyph(c, UiGlyph.BOT, tint), LinearLayout.LayoutParams(c.dp(12f), c.dp(12f)))
         val t = c.label("BOT", 10f, tint, 2)
         t.letterSpacing = 0.1f
         val lp = LinearLayout.LayoutParams(WC, WC)

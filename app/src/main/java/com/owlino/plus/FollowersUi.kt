@@ -92,7 +92,7 @@ class FollowersScreenView(
         rowWrap.addView(hs, LayoutParams(0, WC, 1f))
         val sortBox = FrameLayout(c)
         sortBox.setPadding(c.dp(8f), c.dp(8f), c.dp(8f), c.dp(8f))
-        sortBox.addView(Glyph(c, Glyph.CHEV_DOWN, UiColors.text(dark)), FrameLayout.LayoutParams(c.dp(16f), c.dp(16f)))
+        sortBox.addView(UiGlyph(c, UiGlyph.CHEV_DOWN, UiColors.text(dark)), FrameLayout.LayoutParams(c.dp(16f), c.dp(16f)))
         rowWrap.addView(sortBox, LayoutParams(WC, WC))
         addView(rowWrap, LayoutParams(MP, WC))
 
@@ -180,7 +180,7 @@ class FollowersScreenView(
         if (u.verified) {
             val lp = LayoutParams(c.dp(16f), c.dp(16f))
             lp.leftMargin = c.dp(4f)
-            nameRow.addView(Glyph(c, Glyph.VERIFIED, 0), lp)
+            nameRow.addView(UiGlyph(c, UiGlyph.VERIFIED, 0), lp)
         }
         if (u.isNew) {
             val d = View(c)
@@ -208,7 +208,7 @@ class FollowersScreenView(
         r.addView(btn, bl)
 
         val more = FrameLayout(c)
-        more.addView(Glyph(c, Glyph.MORE, 0xFF9CA3AF.toInt()), FrameLayout.LayoutParams(c.dp(22f), c.dp(22f), Gravity.CENTER))
+        more.addView(UiGlyph(c, UiGlyph.MORE, 0xFF9CA3AF.toInt()), FrameLayout.LayoutParams(c.dp(22f), c.dp(22f), Gravity.CENTER))
         r.addView(more, LayoutParams(c.dp(36f), c.dp(36f)))
         return r
     }

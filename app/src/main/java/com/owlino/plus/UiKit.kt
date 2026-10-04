@@ -69,7 +69,7 @@ fun Context.oval(color: Int, strokeDp: Float = 0f, stroke: Int = 0): GradientDra
     }
 
 /** Icônes dessinées au Canvas (grille 24x24). */
-class Glyph(c: Context, var kind: Int, var color: Int) : View(c) {
+class UiGlyph(c: Context, var kind: Int, var color: Int) : View(c) {
     companion object {
         const val MENU = 0
         const val SEARCH = 1
