@@ -52,6 +52,10 @@ class MainActivity : Activity() {
             startActivity(Intent(this, FeatherActivity::class.java))
         }, lp((420 * k).toInt(), (96 * k).toInt(), (28 * k).toInt()))
 
+        col.addView(pill("شريط سفلي", 30f, 0xFF3B82F6.toInt(), Color.WHITE) {
+            startActivity(Intent(this, BottomBarActivity::class.java))
+        }, lp((420 * k).toInt(), (96 * k).toInt(), (28 * k).toInt()))
+
         // Choix du mode d'affichage
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val on = 0xFF6C5CE7.toInt()

@@ -11,6 +11,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".PlusActivity" android:exported="false" />
+        <activity android:name=".BottomBarActivity" android:exported="false" />
         <activity android:name=".FeatherActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>
