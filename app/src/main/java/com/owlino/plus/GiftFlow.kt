@@ -106,6 +106,15 @@ class GiftFlow(private val act: Activity, private val k: Float, private val pal:
         }
     }
 
+    /** Pleine largeur + hauteur fixe, appliqué APRÈS setContentView (sinon la fenêtre flottante repasse en WRAP_CONTENT). */
+    private fun applyLayout(dlg: Dialog, heightFraction: Float) {
+        dlg.window?.apply {
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (act.resources.displayMetrics.heightPixels * heightFraction).toInt())
+            setGravity(Gravity.BOTTOM)
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        }
+    }
+
     /** Glisse de bas en haut (350 ms). */
     private fun slideIn(sheet: View) {
         sheet.visibility = View.INVISIBLE
@@ -251,6 +260,8 @@ class GiftFlow(private val act: Activity, private val k: Float, private val pal:
 
         slideIn(sheet)
         dlg.setContentView(sheet)
+        applyLayout(dlg, 0.6f)
+        dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         dlg.show()
     }
 
@@ -368,6 +379,7 @@ class GiftFlow(private val act: Activity, private val k: Float, private val pal:
 
         slideIn(sheet)
         dlg.setContentView(sheet)
+        applyLayout(dlg, 0.8f)
         dlg.show()
     }
 
