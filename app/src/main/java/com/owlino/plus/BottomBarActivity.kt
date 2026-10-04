@@ -136,31 +136,47 @@ class BottomBarView(c: Context, private val k: Float, private val dark: Boolean)
         }
     }
 
+    /** Bulle de discussion d'un seul tenant (coin arrondis + queue intégrée) : pas de lignes parasites au trait. */
+    private fun bubble(x0: Float, y0: Float, s: Float, l: Float, t: Float, r: Float, b: Float, rad: Float, tw: Float, th: Float, tailLeft: Boolean): Path {
+        fun X(v: Float) = x0 + v * s
+        fun Y(v: Float) = y0 + v * s
+        val d = 2f * rad * s
+        return Path().apply {
+            moveTo(X(l + rad), Y(t))
+            lineTo(X(r - rad), Y(t))
+            arcTo(RectF(X(r) - d, Y(t), X(r), Y(t) + d), 270f, 90f)
+            if (tailLeft) {
+                lineTo(X(r), Y(b - rad))
+                arcTo(RectF(X(r) - d, Y(b) - d, X(r), Y(b)), 0f, 90f)
+                lineTo(X(l + tw), Y(b))
+                lineTo(X(l), Y(b + th))
+                lineTo(X(l), Y(t + rad))
+            } else {
+                lineTo(X(r), Y(b + th))
+                lineTo(X(r - tw), Y(b))
+                lineTo(X(l + rad), Y(b))
+                arcTo(RectF(X(l), Y(b) - d, X(l) + d, Y(b)), 90f, 90f)
+                lineTo(X(l), Y(t + rad))
+            }
+            arcTo(RectF(X(l), Y(t), X(l) + d, Y(t) + d), 180f, 90f)
+            close()
+        }
+    }
+
     /** Deux bulles de discussion pleines + badge « ٢٠ » en haut à droite. */
     private fun chatIcon(cv: Canvas, cx: Float, cy: Float, s: Float, color: Int, gap: Int) {
         val x0 = cx - s / 2f
         val y0 = cy - s / 2f
+        // Bulle arrière (queue en bas à droite) puis bulle avant (queue en bas à gauche)
+        val back = bubble(x0, y0, s, 0.42f, 0.28f, 1.00f, 0.74f, 0.15f, 0.17f, 0.15f, false)
+        val front = bubble(x0, y0, s, 0.02f, 0.06f, 0.70f, 0.60f, 0.17f, 0.19f, 0.17f, true)
 
-        val back = Path().apply {
-            addRoundRect(RectF(x0 + 0.42f * s, y0 + 0.24f * s, x0 + 0.98f * s, y0 + 0.72f * s), 0.13f * s, 0.13f * s, Path.Direction.CW)
-            moveTo(x0 + 0.62f * s, y0 + 0.70f * s)
-            lineTo(x0 + 0.90f * s, y0 + 0.70f * s)
-            lineTo(x0 + 0.90f * s, y0 + 0.95f * s)
-            close()
-        }
-        val front = Path().apply {
-            addRoundRect(RectF(x0 + 0.02f * s, y0 + 0.06f * s, x0 + 0.70f * s, y0 + 0.62f * s), 0.17f * s, 0.17f * s, Path.Direction.CW)
-            moveTo(x0 + 0.10f * s, y0 + 0.58f * s)
-            lineTo(x0 + 0.10f * s, y0 + 0.90f * s)
-            lineTo(x0 + 0.40f * s, y0 + 0.60f * s)
-            close()
-        }
         p.style = Paint.Style.FILL
         p.color = color
         cv.drawPath(back, p)
-        // Liseré de la couleur du fond pour séparer les deux bulles
+        // Liseré de la couleur du fond pour détacher la bulle avant
         p.style = Paint.Style.STROKE
-        p.strokeWidth = 0.09f * s
+        p.strokeWidth = 0.10f * s
         p.strokeJoin = Paint.Join.ROUND
         p.color = gap
         cv.drawPath(front, p)
@@ -183,25 +199,35 @@ class BottomBarView(c: Context, private val k: Float, private val dark: Boolean)
         cv.drawText("٢٠", bx, by - (p.ascent() + p.descent()) / 2f, p)
     }
 
-    /** Deux silhouettes (contour). */
+    /** Deux silhouettes (contour) : tête + épaules de chaque personne, la seconde est derrière à droite. */
     private fun peopleIcon(cv: Canvas, cx: Float, cy: Float, s: Float, color: Int) {
+        val x0 = cx - s / 2f
+        val y0 = cy - s / 2f - 0.02f * s
+        fun X(v: Float) = x0 + v * s
+        fun Y(v: Float) = y0 + v * s
+
         p.style = Paint.Style.STROKE
         p.strokeWidth = 0.085f * s
         p.strokeCap = Paint.Cap.ROUND
         p.strokeJoin = Paint.Join.ROUND
         p.color = color
-        cv.drawCircle(cx - 0.12f * s, cy - 0.16f * s, 0.17f * s, p)
-        cv.drawCircle(cx + 0.30f * s, cy - 0.22f * s, 0.13f * s, p)
-        val b1 = Path().apply {
-            moveTo(cx - 0.46f * s, cy + 0.40f * s)
-            cubicTo(cx - 0.46f * s, cy + 0.10f * s, cx + 0.22f * s, cy + 0.10f * s, cx + 0.22f * s, cy + 0.40f * s)
-        }
+
+        // Personne arrière (droite) : tête + épaule
+        cv.drawCircle(X(0.76f), Y(0.27f), 0.125f * s, p)
         val b2 = Path().apply {
-            moveTo(cx + 0.36f * s, cy - 0.01f * s)
-            cubicTo(cx + 0.58f * s, cy - 0.01f * s, cx + 0.64f * s, cy + 0.20f * s, cx + 0.64f * s, cy + 0.40f * s)
+            moveTo(X(0.73f), Y(0.545f))
+            cubicTo(X(0.87f), Y(0.545f), X(0.97f), Y(0.64f), X(0.97f), Y(0.90f))
+        }
+        cv.drawPath(b2, p)
+
+        // Personne avant : tête + épaules symétriques
+        cv.drawCircle(X(0.36f), Y(0.29f), 0.16f * s, p)
+        val b1 = Path().apply {
+            moveTo(X(0.04f), Y(0.92f))
+            cubicTo(X(0.04f), Y(0.66f), X(0.18f), Y(0.58f), X(0.36f), Y(0.58f))
+            cubicTo(X(0.54f), Y(0.58f), X(0.68f), Y(0.66f), X(0.68f), Y(0.92f))
         }
         cv.drawPath(b1, p)
-        cv.drawPath(b2, p)
         p.style = Paint.Style.FILL
     }
 }
