@@ -99,8 +99,10 @@ enum class MessageStatus {
     SENDING, SENT, DELIVERED, READ, FAILED
 }
 
-// معرّف ثابت للقناة الوهمية التي تظهر في الشاشة الرئيسية (بدون داتا حقيقية من Supabase)
-const val FAKE_CHANNEL_ID = "dummy_channel_owlino_news"
+// معرّف القناة الرسمية الحقيقية (موجودة في Supabase — جدول chats بنوع channel) ويشترك فيها كل المستخدمين تلقائياً
+const val OFFICIAL_CHANNEL_ID = "00000000-0000-4000-8000-0000000000a1"
+// اسم قديم محفوظ للتوافق: كان يشير للقناة الوهمية، والآن يشير للقناة الرسمية الحقيقية
+const val FAKE_CHANNEL_ID = OFFICIAL_CHANNEL_ID
 
 @androidx.compose.runtime.Stable
 data class ChannelReaction(

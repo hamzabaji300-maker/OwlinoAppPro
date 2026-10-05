@@ -354,19 +354,8 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
             return@remember cachedScreenChats.filter { it.id !in deletedDummyIds && (it.id == FAKE_CHANNEL_ID || !it.id.startsWith("dummy_")) }
         }
         
-        // قناة وهمية ثابتة تظهر في الشاشة الرئيسية (توثيق أحمر) — بدون أي اتصال بـ Supabase
-        val defaults = listOf(
-            ChatModel(
-                id = FAKE_CHANNEL_ID,
-                name = "قناة Owlino الرسمية",
-                message = "🇩🇿 النسخة الجديدة v99 وصلات! حمّلوها الآن وشاركونا رأيكم 🚀",
-                time = "12:30",
-                timestamp = System.currentTimeMillis() - 5 * 60_000,
-                isChannel = true,
-                isVerified = true,
-                unreadCount = 3
-            )
-        )
+        // القناة الرسمية صارت حقيقية: تأتي من Supabase مثل أي محادثة (لا قائمة افتراضية هنا)
+        val defaults = emptyList<ChatModel>()
         
         val roomChatsModels = roomChats?.map { it.toModel() } ?: emptyList()
         val realChatsModels = newCachedChatsRaw.map { 
@@ -651,7 +640,7 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
                         timestamp = timestamp,
                         unreadCount = finalUnreadCount,
                         isBot = existingChat?.isBot ?: false,
-                        isVerified = otherProfile?.isVerified == true,
+                        isVerified = otherProfile?.isVerified == true || rc.id == OFFICIAL_CHANNEL_ID,
                         hasStar = if (pinnedSet != null) rc.id in pinnedSet else existingChat?.hasStar ?: false,
                         isMuted = if (mutedSet != null) rc.id in mutedSet else existingChat?.isMuted ?: false,
                         isFavorite = if (favSet != null) rc.id in favSet else existingChat?.isFavorite ?: false,
@@ -794,7 +783,7 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
                                         timestamp = timestamp,
                                         unreadCount = unreadCount,
                                         isBot = false,
-                                        isVerified = otherProfile?.isVerified == true,
+                                        isVerified = otherProfile?.isVerified == true || chatRow.id == OFFICIAL_CHANNEL_ID,
                                         hasStar = false,
                                         isMuted = false,
                                         isChannel = chatRow.type == "channel",

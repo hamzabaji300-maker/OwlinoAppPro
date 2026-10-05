@@ -119,8 +119,8 @@ fun MessageContextMenuOverlay(
                         "\uD83C\uDFC6", "\uD83D\uDCAA", "\uD83E\uDD23", "\uD83D\uDE0A",
                         "\uD83D\uDE48", "\uD83C\uDF39", "\uD83C\uDFAF"
                     )
-                    if (isChannel) {
-                        // القناة: تبقى كما هي — 6 إيموجيات رئيسية متحركة فقط، والباقي يظهر بعد "React"
+                    run {
+                        // صف 6 إيموجيات متحركة: للمحادثات بين الأشخاص (كما كان) وللقنوات (والباقي يظهر بعد "React")
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -146,47 +146,6 @@ fun MessageContextMenuOverlay(
                                         LottieEmojiReaction(url = reactionUrl, size = 38.dp)
                                     }
                                 }
-                            }
-                        }
-                    } else {
-                        // بين الأشخاص: كل الإيموجيات تظهر ثابتة (بدون أنيميشن) وكاملة دفعة واحدة
-                        FlowRow(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 220.dp)
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            allQuickReactions.forEach { reaction ->
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) {
-                                            onReactionSelected(reaction)
-                                            handleDismiss()
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(reaction, fontSize = 26.sp)
-                                }
-                            }
-                            // بحث عن إيموجي إضافي خارج القائمة الشائعة
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) { showFullEmojiPicker = true },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Outlined.Search, contentDescription = "Search more emojis", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                             }
                         }
                     }

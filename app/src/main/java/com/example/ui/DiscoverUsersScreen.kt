@@ -53,6 +53,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -61,8 +62,12 @@ import kotlinx.coroutines.launch
 fun DiscoverUsersScreen(
     onBack: () -> Unit,
     onUserClick: (String) -> Unit,
-    onBotClick: (String, String) -> Unit = { _, _ -> }
+    onBotClick: (String, String) -> Unit = { _, _ -> },
+    onChannelClick: (String, String) -> Unit = { _, _ -> }
 ) {
+    var channelIdSet by remember { mutableStateOf(setOf<String>()) }
+    var memberChannelIds by remember { mutableStateOf(setOf<String>()) }
+    var pendingChannel by remember { mutableStateOf<Profile?>(null) }
     var botIdSet by remember { mutableStateOf(setOf<String>()) }
         var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<Profile>>(emptyList()) }
@@ -96,7 +101,24 @@ fun DiscoverUsersScreen(
             .collectLatest { (query, tab) ->
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
-                        if (query.isBlank()) {
+                        if (query.isBlank() && tab == 2) {
+                            val chs = mutableListOf<Profile>()
+                            try {
+                                val res = supabase.postgrest.rpc(
+                                    "search_channels",
+                                    buildJsonObject { put("q", "") }
+                                ).decodeList<kotlinx.serialization.json.JsonObject>()
+                                res.forEach { obj ->
+                                    val id = obj["id"]?.jsonPrimitive?.content ?: ""
+                                    if (id.isNotBlank()) {
+                                        channelIdSet = channelIdSet + id
+                                        if (obj["is_member"]?.jsonPrimitive?.content == "true") memberChannelIds = memberChannelIds + id
+                                        chs.add(Profile(id = id, fullName = obj["title"]?.jsonPrimitive?.content ?: "", avatarUrl = obj["avatar_url"]?.jsonPrimitive?.contentOrNull, username = obj["username"]?.jsonPrimitive?.contentOrNull))
+                                    }
+                                }
+                            } catch (e: Exception) { e.printStackTrace() }
+                            searchResults = chs
+                        } else if (query.isBlank()) {
                             val res = supabase.postgrest["profiles"].select {
                                 filter {
                                     filterNot("id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, "00000000-0000-0000-0000-000000000000")
@@ -126,17 +148,20 @@ fun DiscoverUsersScreen(
                             // Channels
                             if (tab == 0 || tab == 2) {
                                 try {
-                                    val res = supabase.postgrest["channels"].select {
-                                        filter { ilike("name", "%${query}%") }
-                                        limit(20)
-                                    }.decodeList<kotlinx.serialization.json.JsonObject>()
-                                    
+                                    // قنوات حقيقية عبر دالة السيرفر (عامة، ويمكن لأي مستخدم الانضمام إليها)
+                                    val res = supabase.postgrest.rpc(
+                                        "search_channels",
+                                        buildJsonObject { put("q", query) }
+                                    ).decodeList<kotlinx.serialization.json.JsonObject>()
                                     res.forEach { obj ->
                                         val id = obj["id"]?.jsonPrimitive?.content ?: ""
-                                        val name = obj["name"]?.jsonPrimitive?.content ?: ""
-                                        val avatarUrl = obj["avatar_url"]?.jsonPrimitive?.content
-                                        val username = obj["username"]?.jsonPrimitive?.content
+                                        val name = obj["title"]?.jsonPrimitive?.content ?: ""
+                                        val avatarUrl = obj["avatar_url"]?.jsonPrimitive?.contentOrNull
+                                        val username = obj["username"]?.jsonPrimitive?.contentOrNull
+                                        val isMember = obj["is_member"]?.jsonPrimitive?.content == "true"
                                         if (id.isNotBlank()) {
+                                            channelIdSet = channelIdSet + id
+                                            if (isMember) memberChannelIds = memberChannelIds + id
                                             profiles.add(Profile(id = id, fullName = name, avatarUrl = avatarUrl, username = username))
                                         }
                                     }
@@ -172,6 +197,23 @@ fun DiscoverUsersScreen(
                     }
                 }
             }
+    }
+
+    pendingChannel?.let { ch ->
+        AlertDialog(
+            onDismissRequest = { pendingChannel = null },
+            containerColor = __surfaceColor,
+            title = { Text(ch.fullName ?: "Channel", color = __textPrimary) },
+            text = { Text("الانضمام إلى هذه القناة ومتابعة منشوراتها؟", color = __textSecondary) },
+            confirmButton = {
+                TextButton(onClick = {
+                    memberChannelIds = memberChannelIds + ch.id
+                    pendingChannel = null
+                    onChannelClick(ch.id, ch.fullName ?: "Channel")
+                }) { Text("انضمام", color = __accent) }
+            },
+            dismissButton = { TextButton(onClick = { pendingChannel = null }) { Text("إلغاء", color = __textSecondary) } }
+        )
     }
 
     Scaffold(
@@ -332,7 +374,10 @@ fun DiscoverUsersScreen(
                         RealUserListItemClone(user = user, onClick = {
                             keyboardController?.hide()
                             focusManager.clearFocus()
-                            if (user.id in botIdSet) onBotClick(user.id, user.fullName ?: "Bot") else onUserClick(user.id)
+                            if (user.id in botIdSet) onBotClick(user.id, user.fullName ?: "Bot")
+                            else if (user.id in channelIdSet) {
+                                if (user.id in memberChannelIds) onChannelClick(user.id, user.fullName ?: "Channel") else pendingChannel = user
+                            } else onUserClick(user.id)
                         })
                     }
                 }

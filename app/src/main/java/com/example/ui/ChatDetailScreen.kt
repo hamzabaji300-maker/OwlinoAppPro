@@ -428,16 +428,40 @@ mutableStateOf<io.github.jan.supabase.realtime.RealtimeChannel?>(null) }
     } catch(e: Exception) {}
   }
   
-  LaunchedEffect(chatId) {
-    if (chatId == FAKE_CHANNEL_ID) {
-        messages = listOf(
-            MessageModel(id = "ch1", text = "🎉 مرحباً بكم في القناة الرسمية لتطبيق Owlino!", time = "09:00", isMine = false, viewsLabel = "12.1K", forwardsLabel = "128", totalInteractionsLabel = "3,418", channelReactions = listOf(ChannelReaction("🔥", 2400), ChannelReaction("❤️", 890))),
-            MessageModel(id = "ch2", text = "🇩🇿 Owlino مصمم خصيصاً للسوق الجزائري، تابعونا لآخر التحديثات.", time = "10:15", isMine = false, isPinned = true, viewsLabel = "26.3K", forwardsLabel = "433", totalInteractionsLabel = "19,236", channelReactions = listOf(ChannelReaction("👍", 10000), ChannelReaction("🙌", 850), ChannelReaction("😢", 620), ChannelReaction("❤️", 410))),
-            MessageModel(id = "ch3", text = "📢 النسخة الجديدة v99 متوفرة الآن مع إصلاحات وتحسينات في الأداء.", time = "11:40", isMine = false, viewsLabel = "8.7K", forwardsLabel = "64", totalInteractionsLabel = "877", channelReactions = listOf(ChannelReaction("👏", 512), ChannelReaction("🚀", 301), ChannelReaction("💵", 85))),
-            MessageModel(id = "ch4", text = "💬 شاركونا اقتراحاتكم وأفكاركم، رأيكم يهمنا!", time = "12:30", isMine = false, viewsLabel = "5.2K", totalInteractionsLabel = "204", channelReactions = listOf(ChannelReaction("❤️", 204)))
-        )
-        return@LaunchedEffect
+  // ===== إحصائيات القناة الحقيقية (مشاهدات + تفاعلات) من message_reads و reactions — بنفس تصميم بطاقة المنشور =====
+  LaunchedEffect(isChannel, chatId, messages.size) {
+    if (!isChannel) return@LaunchedEffect
+    while (true) {
+      try {
+        val ids = messages.map { it.id }.takeLast(100)
+        if (ids.isNotEmpty()) {
+          val reads = com.example.supabase.postgrest["message_reads"]
+            .select() { filter { isIn("message_id", ids) } }.decodeList<MessageReadRow>()
+          val reacts = com.example.supabase.postgrest["reactions"]
+            .select() { filter { isIn("message_id", ids) } }.decodeList<com.example.ui.ReactionRow>()
+          val viewsBy = reads.groupBy { it.message_id }.mapValues { e -> e.value.mapNotNull { r -> r.user_id }.distinct().size }
+          val reactBy = reacts.groupBy { it.message_id }
+          val updated = messages.map { m ->
+            val v = viewsBy[m.id] ?: 0
+            val rs = reactBy[m.id].orEmpty()
+            val grouped = rs.groupBy { r -> r.emoji }.map { e -> ChannelReaction(e.key, e.value.size) }
+            val total = rs.size
+            m.copy(
+              viewsLabel = if (v > 0) formatReactionCount(v) else m.viewsLabel,
+              channelReactions = grouped,
+              totalInteractionsLabel = if (total > 0) formatReactionCount(total) else null
+            )
+          }
+          if (updated != messages) messages = updated
+        }
+      } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+      } catch (e: Exception) {}
+      kotlinx.coroutines.delay(15000)
     }
+  }
+
+  LaunchedEffect(chatId) {
     if (chatId.startsWith("dummy_")) {
         messages = listOf(
             MessageModel(id = "m1", text = "Welcome to the dummy chat!", time = "10:00", isMine = false),
@@ -2536,13 +2560,7 @@ offsetChange, _ ->
                    if (wasKeyboardOpen) keyboardController?.show()
                },
                onReactionSelected = { reaction ->
-                 if (isChannel) {
-                     val existingReaction = msg.reactions.contains(reaction)
-                     messages = messages.map { if (it.id == msg.id) it.copy(reactions = if (existingReaction) emptyList() else listOf(reaction)) else it }
-                     selectedMessageForContext = null
-                     if (wasKeyboardOpen) keyboardController?.show()
-                     return@MessageContextMenuOverlay
-                 }
+                 // القناة والمحادثة: نفس المسار — يُحفظ التفاعل في جدول reactions فتظهر العدادات للجميع
                  val existingReaction = msg.reactions.contains(reaction)
                  messages = messages.map { if (it.id == msg.id) it.copy(reactions = if (existingReaction) emptyList() else listOf(reaction)) else it }
                  selectedMessageForContext = null
@@ -3009,6 +3027,12 @@ isNowSaved) else it }
             onLeave = {
                 showChannelInfo = false
                 coroutineScope.launch {
+                    try {
+                        // مغادرة حقيقية في السيرفر (الأدمن لا يغادر قناته)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.example.supabase.postgrest.rpc("leave_channel", kotlinx.serialization.json.buildJsonObject { put("p_chat_id", kotlinx.serialization.json.JsonPrimitive(chatId)) })
+                        }
+                    } catch (e: Exception) {}
                     try {
                         chatDao.deleteChatById(chatId)
                         cachedChatDao.deleteChatById(chatId)

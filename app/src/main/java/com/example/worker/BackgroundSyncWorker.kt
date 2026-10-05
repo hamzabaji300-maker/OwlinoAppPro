@@ -146,7 +146,7 @@ class BackgroundSyncWorker(
                         timestamp = timestamp,
                         unreadCount = existingChat?.unreadCount ?: 0,
                         isBot = existingChat?.isBot ?: false,
-                        isVerified = existingChat?.isVerified ?: false,
+                        isVerified = existingChat?.isVerified ?: (rc.id == com.example.ui.OFFICIAL_CHANNEL_ID),
                         hasStar = existingChat?.hasStar ?: false,
                         isMuted = existingChat?.isMuted ?: false,
                         isFavorite = existingChat?.isFavorite ?: false,
