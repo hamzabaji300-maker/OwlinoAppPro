@@ -464,7 +464,7 @@ class GiftSearchIconView(c: Context, private val color: Int) : View(c) {
     }
 }
 
-/** Plumes dorées superposées en éventail (1 à 5). */
+/** Plumes argentées superposées en éventail (1 à 5). */
 class GiftFeatherStackView(c: Context, private val count: Int, private val scale: Float) : View(c) {
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
     override fun onDraw(cv: Canvas) {

@@ -78,7 +78,7 @@ class FeatherActivity : Activity() {
         card.addView(tv("شراء الريش", 24f, Color.WHITE, true).apply {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply { setColor(green); cornerRadius = 80f * k }
-            setOnClickListener { Toast.makeText(this@FeatherActivity, "شراء الريش", Toast.LENGTH_SHORT).show() }
+            setOnClickListener { BuyFeathers(this@FeatherActivity, k, pal).start() }
         }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(73f)).apply {
             leftMargin = px(30f); rightMargin = px(30f); topMargin = px(150f)
         })

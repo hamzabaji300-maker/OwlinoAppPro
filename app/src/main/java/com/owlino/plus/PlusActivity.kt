@@ -51,13 +51,12 @@ class PlusActivity : Activity() {
     private var annual = false
     private var sb = 0
     private var nb = 0
-    private var termsShown = true
     private lateinit var pal: Pal
     private var clipTop = 0f
     private lateinit var scrollV: ScrollView
 
     private lateinit var priceLine: TextView
-    private lateinit var terms: TextView
+    private val rowViews = ArrayList<View>()
     private lateinit var radioM: RadioView
     private lateinit var radioA: RadioView
 
@@ -254,7 +253,8 @@ class PlusActivity : Activity() {
                     leftMargin = px(121f); rightMargin = px(110f)
                 })
             row.addView(ChevronView(this, k, 0, pal.chev), FrameLayout.LayoutParams(px(40f), px(40f), Gravity.END or Gravity.CENTER_VERTICAL).apply { rightMargin = px(38f) })
-            row.setOnClickListener { if (row.top - scrollV.scrollY + row.height / 2 > clipTop) openSheet(i) }
+            rowViews.add(row)
+            row.setOnClickListener { if (row.alpha > 0.3f) openSheet(i) }
             content.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(if (last) 120f else 84f)))
         }
         content.addView(View(this), LinearLayout.LayoutParams(1, px(330f)))
@@ -283,10 +283,6 @@ class PlusActivity : Activity() {
         })
         priceLine = tv(priceText(), 21f, pal.text).apply { gravity = Gravity.CENTER }
         bar.addView(priceLine, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(14f) })
-        terms = tv(termsText(), 20f, pal.grey).apply { gravity = Gravity.CENTER }
-        bar.addView(terms, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = px(14f); leftMargin = px(30f); rightMargin = px(30f)
-        })
         root.addView(bar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
 
         // --- Flèche retour
@@ -304,25 +300,15 @@ class PlusActivity : Activity() {
             ins
         }
 
-        // --- Effet de défilement : en-tête qui se réduit
+        // --- Effet de défilement : l'en-tête (ciel, baleine, nuages) reste fixe ;
+        // les lignes s'effacent progressivement en arrivant au niveau des nuages.
         fun onScrolled(y: Int) {
-            val sc = y.toFloat()
-            val m = 150f * k
-            // L'en-tête défile avec la liste : les lignes ne passent jamais sur le violet, la baleine ou les nuages
-            header.translationY = -sc
-            logo.translationY = -sc
-            sub.translationY = -sc
-            sub.alpha = max(0f, 1f - sc / (60f * k))
-            clipTop = sb.toFloat()
-            // Les lignes disparaissent sous l'en-tête et n'apparaissent jamais au-dessus
-            scroll.clipBounds = Rect(0, clipTop.toInt(), root.width, root.height)
-            val show = y <= 8
-            if (show != termsShown) {
-                termsShown = show
-                // Le bouton glisse doucement vers le bas (les conditions s'effacent) au lieu de sauter
-                val dy = if (show) 0f else (terms.height + px(14f)).toFloat()
-                bar.animate().translationY(dy).setDuration(300).setInterpolator(DecelerateInterpolator(1.6f)).start()
-                terms.animate().alpha(if (show) 1f else 0f).setDuration(240).start()
+            val full = 361f * k // centre de la 1re ligne au repos : pleinement visible
+            val zero = 296f * k // sommet des nuages : totalement effacée
+            clipTop = zero
+            for (r in rowViews) {
+                val cy = r.top - y + r.height / 2f
+                r.alpha = ((cy - zero) / (full - zero)).coerceIn(0f, 1f)
             }
         }
         scroll.setOnScrollChangeListener { _, _, y, _, _ -> onScrolled(y) }

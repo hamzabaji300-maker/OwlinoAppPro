@@ -103,7 +103,7 @@ object Feather {
         while (i < quillB.size) { moveTo(quillB[i], quillB[i + 1]); lineTo(quillB[i + 2], quillB[i + 3]); i += 4 }
     }
 
-    /** Grande plume dorée (style plume d'écriture). h = demi-hauteur en pixels. Rendu logiciel requis pour la lueur. */
+    /** Grande plume argentée (style plume d'écriture). h = demi-hauteur en pixels. Rendu logiciel requis pour la lueur. */
     fun drawQuill(cv: Canvas, cx: Float, cy: Float, h: Float, rot: Float, dark: Boolean, alpha: Int = 255) {
         val m = Matrix()
         m.setScale(h, h)
@@ -116,9 +116,9 @@ object Feather {
 
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
         p.style = Paint.Style.FILL
-        p.shader = LinearGradient(pts[0], pts[1], pts[2], pts[3], 0xFFFFE699.toInt(), 0xFFC9941C.toInt(), Shader.TileMode.CLAMP)
+        p.shader = LinearGradient(pts[0], pts[1], pts[2], pts[3], 0xFFF4F6FA.toInt(), 0xFF98A2B0.toInt(), Shader.TileMode.CLAMP)
         p.alpha = alpha
-        p.setShadowLayer(max(3f, h * 0.10f), 0f, h * 0.04f, if (dark) 0x66FFC857 else 0x40B8860B)
+        p.setShadowLayer(max(3f, h * 0.10f), 0f, h * 0.04f, if (dark) 0x66C9D1DE else 0x40707A88)
         cv.drawPath(v, p)
         p.clearShadowLayer()
         p.shader = null
@@ -127,7 +127,7 @@ object Feather {
         p.strokeCap = Paint.Cap.ROUND
         p.strokeJoin = Paint.Join.ROUND
         p.strokeWidth = max(1f, h * 0.012f)
-        p.color = 0xFFB07A0A.toInt()
+        p.color = 0xFF7F8896.toInt()
         p.alpha = alpha
         val b = Path()
         quillBarbs.transform(m, b)
@@ -190,7 +190,7 @@ object Feather {
     }
 }
 
-/** Grande plume dorée + petites plumes blanches qui flottent doucement autour. Repère : 591 unités de large. */
+/** Grande plume argentée + petites plumes blanches qui flottent doucement autour. Repère : 591 unités de large. */
 class HeroView(c: Context, private val dark: Boolean) : View(c) {
     /** Par plume : x, y, taille, rotation de base, alpha, ampX, ampY, f1, f2, f3, phases p1,p2,p3, tours (-1/0/1) */
     private class Fl(
@@ -286,7 +286,7 @@ class FeatherIconView(c: Context, private val dark: Boolean) : View(c) {
     }
 }
 
-/** Petite plume dorée (icône du solde). */
+/** Petite plume argentée (icône du solde). */
 class GoldFeatherIconView(c: Context, private val dark: Boolean) : View(c) {
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
     override fun onDraw(cv: Canvas) {
