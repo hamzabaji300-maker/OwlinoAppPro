@@ -126,7 +126,25 @@ fun DiscoverUsersScreen(
                                 }
                                 limit(20)
                             }.decodeList<Profile>()
-                            searchResults = res
+                            // تبويب "All" بدون كتابة: نضيف أشهر القنوات أيضاً حتى يراها الناس مباشرة
+                            val topChannels = mutableListOf<Profile>()
+                            if (tab == 0) {
+                                try {
+                                    val chRes = supabase.postgrest.rpc(
+                                        "search_channels",
+                                        buildJsonObject { put("q", "") }
+                                    ).decodeList<kotlinx.serialization.json.JsonObject>()
+                                    chRes.take(8).forEach { obj ->
+                                        val id = obj["id"]?.jsonPrimitive?.content ?: ""
+                                        if (id.isNotBlank()) {
+                                            channelIdSet = channelIdSet + id
+                                            if (obj["is_member"]?.jsonPrimitive?.content == "true") memberChannelIds = memberChannelIds + id
+                                            topChannels.add(Profile(id = id, fullName = obj["title"]?.jsonPrimitive?.content ?: "", avatarUrl = obj["avatar_url"]?.jsonPrimitive?.contentOrNull, username = obj["username"]?.jsonPrimitive?.contentOrNull))
+                                        }
+                                    }
+                                } catch (e: Exception) { e.printStackTrace() }
+                            }
+                            searchResults = topChannels + res
                         } else {
                             val profiles = mutableListOf<Profile>()
                             
