@@ -12,6 +12,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -167,7 +168,10 @@ class HomeScreenView(
     private var filter = 0
     private var query = ""
     private val listBox = LinearLayout(c)
-    private val tabs = ArrayList<TextView>()
+    private val filterLabels = listOf("All Chats", "Unread", "Groups", "Channels")
+    private var stripAnim: android.animation.ValueAnimator? = null
+    private var stripPos = 0f
+    private lateinit var strip: SearchTabStrip
     private val fab = FrameLayout(c)
     val topBar: TopBarView
 
@@ -179,9 +183,10 @@ class HomeScreenView(
         val col = LinearLayout(c)
         col.orientation = LinearLayout.VERTICAL
         col.addView(topBar, LinearLayout.LayoutParams(MP, WC))
-        val tl = LinearLayout.LayoutParams(MP, c.dp(38f))
-        tl.setMargins(c.dp(16f), c.dp(4f), c.dp(16f), c.dp(4f))
-        col.addView(buildTabs(), tl)
+        col.addView(buildTabs(), LinearLayout.LayoutParams(MP, c.dp(46f)))
+        val divider = View(c)
+        divider.setBackgroundColor(if (dark) 0x1FFFFFFF else 0x14000000)
+        col.addView(divider, LinearLayout.LayoutParams(MP, c.dp(1f)))
         col.addView(listBox, LinearLayout.LayoutParams(MP, WC))
         col.addView(View(c), LinearLayout.LayoutParams(1, c.dp(96f)))
 
@@ -201,41 +206,31 @@ class HomeScreenView(
         fl.setMargins(0, 0, c.dp(20f), c.dp(20f))
         addView(fab, fl)
 
-        updateTabs()
         rebuild()
     }
 
-    private fun buildTabs(): LinearLayout {
-        val box = LinearLayout(c)
-        box.orientation = LinearLayout.HORIZONTAL
-        box.gravity = Gravity.CENTER_VERTICAL
-        box.background = c.rounded(UiColors.surface(dark), 19f, 1f, if (dark) 0x0DFFFFFF else 0x0D000000)
-        box.setPadding(c.dp(4f), c.dp(4f), c.dp(4f), c.dp(4f))
-        val labels = listOf("All Chats", "Unread", "Groups", "Channels")
-        labels.forEachIndexed { i, s ->
-            val tv = c.label(s, 12f, 0, 1)
-            tv.gravity = Gravity.CENTER
-            tv.setOnClickListener {
-                filter = i
-                updateTabs()
-                rebuild()
-            }
-            tabs.add(tv)
-            box.addView(tv, LinearLayout.LayoutParams(0, MP, 1f))
-        }
-        return box
+    /** Même design que les onglets de l'écran de recherche : pastille douce qui glisse derrière l'onglet actif. */
+    private fun buildTabs(): View {
+        strip = SearchTabStrip(c, dark, filterLabels) { i -> selectFilter(i) }
+        val sc = HorizontalScrollView(c)
+        sc.isHorizontalScrollBarEnabled = false
+        sc.overScrollMode = View.OVER_SCROLL_NEVER
+        sc.isFillViewport = true
+        sc.addView(strip, FrameLayout.LayoutParams(WC, c.dp(46f)))
+        return sc
     }
 
-    private fun updateTabs() {
-        tabs.forEachIndexed { i, tv ->
-            if (i == filter) {
-                tv.background = c.rounded(UiColors.BLUE, 15f)
-                tv.setTextColor(Color.WHITE)
-            } else {
-                tv.background = null
-                tv.setTextColor(if (dark) 0xFFE5E7EB.toInt() else 0xFF111827.toInt())
-            }
-        }
+    private fun selectFilter(i: Int) {
+        if (i == filter) return
+        filter = i
+        stripAnim?.cancel()
+        val anim = android.animation.ValueAnimator.ofFloat(stripPos, i.toFloat())
+        anim.duration = 260
+        anim.interpolator = android.view.animation.DecelerateInterpolator()
+        anim.addUpdateListener { stripPos = it.animatedValue as Float; strip.setProgress(stripPos) }
+        stripAnim = anim
+        anim.start()
+        rebuild()
     }
 
     private fun rebuild() {
