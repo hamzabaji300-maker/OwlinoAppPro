@@ -29,6 +29,14 @@ jobs:
       - name: Build release APK
         run: gradle assembleRelease --stacktrace
 
+      - name: Upload APK to Actions (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Owlino-APK
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Publish GitHub Release with APK
         uses: softprops/action-gh-release@v2
         with:
