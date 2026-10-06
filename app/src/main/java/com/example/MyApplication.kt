@@ -23,6 +23,8 @@ class MyApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         try { com.example.ui.CrashCatcher.setup(this) } catch (e: Throwable) {}
+        try { NotificationHelper.ensureOwlinoChannel(this) } catch (e: Throwable) {}
+        try { com.example.ui.SendSound.preload(this) } catch (e: Throwable) {}
 
         try {
             app.rive.runtime.kotlin.core.Rive.init(this)

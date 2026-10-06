@@ -105,8 +105,8 @@ class OwlinoMessagingService : FirebaseMessagingService() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
 
-            val channelId = "owlino_high_priority_v2"
-            val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val channelId = NotificationHelper.OWLINO_CHANNEL_ID
+            val defaultSoundUri = NotificationHelper.owlinoSoundUri(this)
             
             // محاولة تحميل الصورة من الرابط (إن وُجد)
             var largeIcon: Bitmap? = null
@@ -182,7 +182,7 @@ class OwlinoMessagingService : FirebaseMessagingService() {
                 .setAutoCancel(true)
                 .setSound(defaultSoundUri)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setDefaults(NotificationCompat.DEFAULT_VIBRATE or NotificationCompat.DEFAULT_LIGHTS)
                 .setContentIntent(pendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
 
@@ -195,18 +195,7 @@ class OwlinoMessagingService : FirebaseMessagingService() {
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    channelId,
-                    "Owlino Notifications",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Owlino High Priority Notifications"
-                    enableVibration(true)
-                    setShowBadge(true)
-                }
-                notificationManager.createNotificationChannel(channel)
-            }
+            NotificationHelper.ensureOwlinoChannel(this)
 
             val notificationId = if (notifType == "follow" && profileId.isNotEmpty()) profileId.hashCode() else if (chatId.isNotEmpty()) chatId.hashCode() else System.currentTimeMillis().toInt()
             notificationManager.notify(notificationId, notificationBuilder.build())

@@ -19,6 +19,30 @@ object AppState {
 
 object NotificationHelper {
     private const val CHANNEL_ID = "new_messages_channel"
+
+    /** Canal des notifications push (abonné, message d'ami, etc.) avec le son personnalisé. */
+    const val OWLINO_CHANNEL_ID = "owlino_high_priority_v3"
+
+    fun owlinoSoundUri(context: Context): android.net.Uri =
+        android.net.Uri.parse("android.resource://${context.packageName}/${R.raw.sound_notification}")
+
+    fun ensureOwlinoChannel(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val attrs = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val channel = NotificationChannel(OWLINO_CHANNEL_ID, "Owlino Notifications", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Owlino High Priority Notifications"
+                enableVibration(true)
+                setShowBadge(true)
+                setSound(owlinoSoundUri(context), attrs)
+            }
+            nm.createNotificationChannel(channel)
+            try { nm.deleteNotificationChannel("owlino_high_priority_v2") } catch (e: Exception) {}
+        }
+    }
     
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

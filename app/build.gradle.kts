@@ -19,7 +19,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.owlino.odxrgj"
+        applicationId = "com.owlino.dxpdis"
         minSdk = 26
         targetSdk = 34
         versionCode = 47

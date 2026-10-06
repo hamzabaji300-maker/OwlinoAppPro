@@ -2002,6 +2002,7 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                      if (isBotManagerChat || isUserBotChat) {
                          val t = messageText
                          messageText = ""
+                         SendSound.play(context)
                          botSend(t)
                          return@MessageInputBar
                      }
@@ -2048,6 +2049,7 @@ java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("H
                             status = MessageStatus.SENDING
                           )
                           messages = (messages + newMsg).distinctBy { it.id }
+                          SendSound.play(context)
 
                           // Optimistic update of local chat lists
                           coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -2275,6 +2277,7 @@ MessageStatus.SENT, time = timeStr) else it
                     
                     // Insert all optimistic messages at once
                     messages = (messages + tempMsgsWithUris.map { it.first }).distinctBy { it.id }
+                    SendSound.play(context)
 
                     // Optimistic update of local chat lists
                     coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {

@@ -24,6 +24,10 @@
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.FastApp">
         
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="owlino_high_priority_v3" />
+
         <activity android:name="androidx.activity.ComponentActivity" android:exported="true" />
         
         <activity
