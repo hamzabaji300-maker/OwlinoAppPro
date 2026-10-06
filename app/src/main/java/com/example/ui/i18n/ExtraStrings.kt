@@ -40,6 +40,8 @@ data class ExtraStrings(
     val rdSearchRemnants: String = "Search remnants",
     val rdKindBot: String = "bot",
     val rdKindChannel: String = "channel",
+    val rdSubscribers: String = "subscribers",
+    val rdMembers: String = "members",
 )
 
 val extraStringsEn = ExtraStrings(
@@ -100,6 +102,8 @@ val extraStringsAr = ExtraStrings(
     rdSearchRemnants = "عمليات البحث السابقة",
     rdKindBot = "بوت",
     rdKindChannel = "قناة",
+    rdSubscribers = "مشترك",
+    rdMembers = "عضو",
 )
 
 val extraStringsFr = ExtraStrings(
@@ -135,6 +139,8 @@ val extraStringsFr = ExtraStrings(
     rdSearchRemnants = "Recherches récentes",
     rdKindBot = "bot",
     rdKindChannel = "chaîne",
+    rdSubscribers = "abonnés",
+    rdMembers = "membres",
 )
 
 @Composable

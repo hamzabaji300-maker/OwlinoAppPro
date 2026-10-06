@@ -270,130 +270,19 @@ private fun HomeNavItem(
     }
 }
 
-/** محتوى البحث (يُعرض تحت الكارد الثابت دون تغيير الكارد نفسه) */
+/** محتوى البحث (يُعرض تحت الكارد الثابت دون تغيير الكارد نفسه): نفس شاشة البحث الجديدة (أنواع + صفحات تُسحب) */
 @Composable
-fun DiscoverSearchContent(searchQuery: String, onUserClick: (String) -> Unit, onBotClick: (String, String) -> Unit = { _, _ -> }) {
-    val themeConfig = LocalSettingsTheme.current
-    val theme = themeConfig.theme
-    val accent = themeConfig.accent
-    val tr = com.example.ui.i18n.LocalTranslation.current
-    var results by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<Profile>>(emptyList()) }
-    var selectedTab by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    val tabs = listOf("Chats", "Channels", "Apps", "Posts", "Media")
-    var botResults by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<Profile>>(emptyList()) }
-    val me = supabase.auth.currentUserOrNull()
-
-    // البوتات: بحث آمن عبر دالة search_bots (بالاسم أو @username)
-    androidx.compose.runtime.LaunchedEffect(searchQuery) {
-        if (searchQuery.isBlank()) { botResults = emptyList(); return@LaunchedEffect }
-        kotlinx.coroutines.delay(300)
-        try {
-            botResults = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                supabase.postgrest.rpc(
-                    "search_bots",
-                    kotlinx.serialization.json.buildJsonObject { put("q", searchQuery.trim()) }
-                ).decodeList<kotlinx.serialization.json.JsonObject>().mapNotNull { obj ->
-                    val id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    Profile(
-                        id = id,
-                        fullName = obj["name"]?.jsonPrimitive?.content,
-                        avatarUrl = obj["avatar_url"]?.jsonPrimitive?.contentOrNull,
-                        username = obj["username"]?.jsonPrimitive?.contentOrNull
-                    )
-                }
-            }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    androidx.compose.runtime.LaunchedEffect(searchQuery) {
-        if (searchQuery.isBlank()) { results = emptyList(); return@LaunchedEffect }
-        kotlinx.coroutines.delay(300)
-        try {
-            results = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                supabase.postgrest["profiles"]
-                    .select {
-                        filter {
-                            ilike("full_name", "%${searchQuery}%")
-                            if (me != null) neq("id", me.id)
-                        }
-                        limit(20)
-                    }
-                    .decodeList<Profile>()
-            }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    Column(modifier = Modifier.fillMaxSize().background(theme.bgColor)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(androidx.compose.foundation.rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(top = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            tabs.forEachIndexed { index, title ->
-                val sel = index == selectedTab
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .width(IntrinsicSize.Min)
-                        .clickable(
-                            interactionSource = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                            indication = null
-                        ) { selectedTab = index }
-                ) {
-                    Text(
-                        text = title,
-                        color = if (sel) accent else theme.textSecondary,
-                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
-                        fontSize = 15.sp,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    )
-                    if (sel) {
-                        Box(Modifier.height(3.dp).fillMaxWidth().clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp)).background(accent))
-                    } else {
-                        Spacer(Modifier.height(3.dp))
-                    }
-                }
-            }
-        }
-        androidx.compose.material3.HorizontalDivider(color = theme.dividerColor, thickness = 0.5.dp)
-
-        androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize()) {
-            if (searchQuery.isEmpty()) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        Text("${tr.noResultsFoundFor} ${tabs[selectedTab].lowercase()}", color = theme.textSecondary)
-                    }
-                }
-            } else if (results.isEmpty() && !(botResults.isNotEmpty() && (selectedTab == 0 || selectedTab == 2))) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        Text("${tr.noResultsFoundFor} '$searchQuery'", color = theme.textSecondary)
-                    }
-                }
-            } else {
-                if (selectedTab == 0 || selectedTab == 2) {
-                    items(botResults, key = { "bot_" + it.id }) { bot ->
-                        RealUserListItemClone(user = bot, onClick = { onBotClick(bot.id, bot.fullName ?: "Bot") })
-                    }
-                }
-                if (selectedTab != 2) {
-                    items(results, key = { it.id }) { user ->
-                        RealUserListItemClone(user = user, onClick = { onUserClick(user.id) })
-                    }
-                }
-            }
-        }
-    }
+fun DiscoverSearchContent(
+    searchQuery: String,
+    onUserClick: (String) -> Unit,
+    onBotClick: (String, String) -> Unit = { _, _ -> },
+    onChannelClick: (String, String) -> Unit = { _, _ -> }
+) {
+    DiscoverUsersBody(
+        searchQuery = searchQuery,
+        onUserClick = onUserClick,
+        onBotClick = onBotClick,
+        onChannelClick = onChannelClick,
+        modifier = Modifier.fillMaxSize()
+    )
 }

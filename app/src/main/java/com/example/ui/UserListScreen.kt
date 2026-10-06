@@ -314,18 +314,18 @@ fun UserListScreen(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(20.dp))
-                                    .background(if (isSelected) com.example.ui.SettingsColors.textPrimary else com.example.ui.SettingsColors.surface)
+                                    .background(if (isSelected) com.example.ui.redesign.RdColors.text(uiDark) else com.example.ui.redesign.RdColors.surface(uiDark))
                                     .clickable { activeTab = tab }
                                     .padding(horizontal = 16.dp, vertical = 6.dp)
                             ) {
                                 if (tab == "followers" && newOnEntry.value.isNotEmpty() && !isSelected) {
-                                    Box(modifier = Modifier.align(Alignment.TopEnd).size(7.dp).clip(CircleShape).background(uiAccent))
+                                    Box(modifier = Modifier.align(Alignment.TopEnd).size(7.dp).clip(CircleShape).background(com.example.ui.redesign.RdColors.Blue))
                                 }
                                 Text(
                                     text = tab.replaceFirstChar { it.uppercase() },
-                                    color = if (isSelected) com.example.ui.SettingsColors.background else com.example.ui.SettingsColors.textPrimary,
+                                    color = if (isSelected) com.example.ui.redesign.RdColors.bg(uiDark) else com.example.ui.redesign.RdColors.text(uiDark),
                                     fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
@@ -449,7 +449,7 @@ fun UserListScreen(
                                         }
                                         if (user.isNew) {
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(uiAccent))
+                                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(com.example.ui.redesign.RdColors.Blue))
                                         }
                                     }
                                     Text(
@@ -512,14 +512,14 @@ fun UserListScreen(
                                                 }
                                             },
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (user.isFollowing) uiChip else uiAccent,
+                                                containerColor = if (user.isFollowing) uiChip else com.example.ui.redesign.RdColors.Blue,
                                                 contentColor = if (user.isFollowing) uiText else Color.White
                                             ),
                                             shape = RoundedCornerShape(8.dp),
                                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
                                             modifier = Modifier.height(32.dp)
                                         ) {
-                                            Text(if (user.isFollowing) com.example.ui.i18n.LocalTranslation.current.following else com.example.ui.i18n.LocalTranslation.current.follow, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                            Text(if (user.isFollowing) com.example.ui.i18n.LocalTranslation.current.following else com.example.ui.i18n.LocalTranslation.current.follow, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                     

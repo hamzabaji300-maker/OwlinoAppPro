@@ -200,47 +200,6 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 12.dp)
         ) {
-            // Owlino Feather + Owlino Plus cards (UI only)
-            val rdExtra = com.example.ui.i18n.rememberExtraStrings()
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 20.dp)
-                    .clip(RoundedCornerShape(SettingsColors.cardRadius))
-                    .background(SettingsColors.surface)
-            ) {
-                SettingsItem(
-                    icon = Lucide.Feather,
-                    title = rdExtra.owlinoFeatherTitle,
-                    subtitle = rdExtra.owlinoFeatherSub,
-                    iconColor = Color(0xFF19BD6B),
-                    titleColor = SettingsColors.textPrimary,
-                    subtitleColor = SettingsColors.textSecondary,
-                    dividerColor = SettingsColors.divider,
-                    isLast = true,
-                    onClick = onOwlinoFeatherClick
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 20.dp)
-                    .clip(RoundedCornerShape(SettingsColors.cardRadius))
-                    .background(SettingsColors.surface)
-            ) {
-                SettingsItem(
-                    icon = Lucide.Crown,
-                    title = rdExtra.owlinoPlusTitle,
-                    subtitle = rdExtra.owlinoPlusSub,
-                    iconColor = Color(0xFF7B5CF0),
-                    titleColor = SettingsColors.textPrimary,
-                    subtitleColor = SettingsColors.textSecondary,
-                    dividerColor = SettingsColors.divider,
-                    isLast = true,
-                    onClick = onOwlinoPlusClick
-                )
-            }
-
             // Profile Card — corner radius now matches CSS --radius-2xl (28px)
             Box(
                 modifier = Modifier
@@ -453,6 +412,47 @@ fun SettingsScreen(
                         }
                     }
                 }
+
+            // Owlino Feather + Owlino Plus cards (UI only) — juste au-dessus de « تسجيل الخروج »
+            val rdExtra = com.example.ui.i18n.rememberExtraStrings()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 20.dp)
+                    .clip(RoundedCornerShape(SettingsColors.cardRadius))
+                    .background(SettingsColors.surface)
+            ) {
+                SettingsItem(
+                    icon = Lucide.Feather,
+                    title = rdExtra.owlinoFeatherTitle,
+                    subtitle = rdExtra.owlinoFeatherSub,
+                    iconColor = Color(0xFF19BD6B),
+                    titleColor = SettingsColors.textPrimary,
+                    subtitleColor = SettingsColors.textSecondary,
+                    dividerColor = SettingsColors.divider,
+                    isLast = true,
+                    onClick = onOwlinoFeatherClick
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 20.dp)
+                    .clip(RoundedCornerShape(SettingsColors.cardRadius))
+                    .background(SettingsColors.surface)
+            ) {
+                SettingsItem(
+                    icon = Lucide.Crown,
+                    title = rdExtra.owlinoPlusTitle,
+                    subtitle = rdExtra.owlinoPlusSub,
+                    iconColor = Color(0xFF7B5CF0),
+                    titleColor = SettingsColors.textPrimary,
+                    subtitleColor = SettingsColors.textSecondary,
+                    dividerColor = SettingsColors.divider,
+                    isLast = true,
+                    onClick = onOwlinoPlusClick
+                )
+            }
 
                 Column(
                     modifier = Modifier

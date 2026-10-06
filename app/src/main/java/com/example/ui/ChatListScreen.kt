@@ -1463,6 +1463,18 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
                 if (isSearching) {
                     DiscoverSearchContent(
                         searchQuery = discoverQuery,
+                        onChannelClick = { chId, chName ->
+                            keyboardControllerHome?.hide()
+                            focusManagerHome.clearFocus()
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                try {
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        com.example.supabase.postgrest.rpc("join_channel", kotlinx.serialization.json.buildJsonObject { put("p_chat_id", kotlinx.serialization.json.JsonPrimitive(chId)) })
+                                    }
+                                } catch (e: Exception) { e.printStackTrace() }
+                                onChatClick(chId, chName, true)
+                            }
+                        },
                         onUserClick = { userId ->
                             keyboardControllerHome?.hide()
                             focusManagerHome.clearFocus()
@@ -2083,7 +2095,7 @@ fun ChatItem(
                             modifier = Modifier.padding(start = 6.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)) {
-                                Icon(imageVector = Lucide.Bot, contentDescription = null, tint = if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB), modifier = Modifier.size(12.dp))
+                                com.example.ui.redesign.RdGlyph(com.example.ui.redesign.RdGlyphKind.BOT, if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB), Modifier.size(12.dp))
                                 Spacer(modifier = Modifier.width(2.dp))
                                 Text(
                                     text = "BOT",

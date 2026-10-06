@@ -65,11 +65,51 @@ fun DiscoverUsersScreen(
     onBotClick: (String, String) -> Unit = { _, _ -> },
     onChannelClick: (String, String) -> Unit = { _, _ -> }
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+    val rdDark = com.example.ui.LocalSettingsTheme.current.theme.isDark
+    val rdMe = com.example.ui.GlobalAppState.liveMyProfile
+    Scaffold(
+        containerColor = com.example.ui.redesign.RdColors.bg(rdDark),
+        contentWindowInsets = WindowInsets.systemBars
+    ) { paddingValues ->
+        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            HomeTopBar(
+                hint = com.example.ui.i18n.LocalTranslation.current.searchPlaceholder,
+                avatarUrl = rdMe?.avatarUrl,
+                initial = ((rdMe?.fullName?.takeIf { it.isNotBlank() } ?: rdMe?.username) ?: "").trim().take(1).uppercase().ifBlank { "H" },
+                isSearching = true,
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                onSearchActivate = {},
+                onCloseSearch = onBack,
+                onMenuClick = {},
+                onAvatarClick = {}
+            )
+            DiscoverUsersBody(
+                searchQuery = searchQuery,
+                onUserClick = onUserClick,
+                onBotClick = onBotClick,
+                onChannelClick = onChannelClick,
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            )
+        }
+    }
+}
+
+/** Corps de la recherche (onglets + pages + résultats) : utilisé par l'écran de recherche ET par la recherche de l'accueil. */
+@Composable
+fun DiscoverUsersBody(
+    searchQuery: String,
+    onUserClick: (String) -> Unit,
+    onBotClick: (String, String) -> Unit = { _, _ -> },
+    onChannelClick: (String, String) -> Unit = { _, _ -> },
+    modifier: Modifier = Modifier
+) {
     var channelIdSet by remember { mutableStateOf(setOf<String>()) }
     var memberChannelIds by remember { mutableStateOf(setOf<String>()) }
     var pendingChannel by remember { mutableStateOf<Profile?>(null) }
     var botIdSet by remember { mutableStateOf(setOf<String>()) }
-        var searchQuery by remember { mutableStateOf("") }
+    var channelCounts by remember { mutableStateOf(mapOf<String, Long>()) }
     var searchResults by remember { mutableStateOf<List<Profile>>(emptyList()) }
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -112,6 +152,7 @@ fun DiscoverUsersScreen(
                                     val id = obj["id"]?.jsonPrimitive?.content ?: ""
                                     if (id.isNotBlank()) {
                                         channelIdSet = channelIdSet + id
+                                        obj["subscribers"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()?.let { channelCounts = channelCounts + (id to it) }
                                         if (obj["is_member"]?.jsonPrimitive?.content == "true") memberChannelIds = memberChannelIds + id
                                         chs.add(Profile(id = id, fullName = obj["title"]?.jsonPrimitive?.content ?: "", avatarUrl = obj["avatar_url"]?.jsonPrimitive?.contentOrNull, username = obj["username"]?.jsonPrimitive?.contentOrNull))
                                     }
@@ -138,6 +179,7 @@ fun DiscoverUsersScreen(
                                         val id = obj["id"]?.jsonPrimitive?.content ?: ""
                                         if (id.isNotBlank()) {
                                             channelIdSet = channelIdSet + id
+                                            obj["subscribers"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()?.let { channelCounts = channelCounts + (id to it) }
                                             if (obj["is_member"]?.jsonPrimitive?.content == "true") memberChannelIds = memberChannelIds + id
                                             topChannels.add(Profile(id = id, fullName = obj["title"]?.jsonPrimitive?.content ?: "", avatarUrl = obj["avatar_url"]?.jsonPrimitive?.contentOrNull, username = obj["username"]?.jsonPrimitive?.contentOrNull))
                                         }
@@ -179,6 +221,7 @@ fun DiscoverUsersScreen(
                                         val isMember = obj["is_member"]?.jsonPrimitive?.content == "true"
                                         if (id.isNotBlank()) {
                                             channelIdSet = channelIdSet + id
+                                            obj["subscribers"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()?.let { channelCounts = channelCounts + (id to it) }
                                             if (isMember) memberChannelIds = memberChannelIds + id
                                             profiles.add(Profile(id = id, fullName = name, avatarUrl = avatarUrl, username = username))
                                         }
@@ -234,8 +277,8 @@ fun DiscoverUsersScreen(
         )
     }
 
-    // ---- Redesign (UI seulement) : barre du haut identique à l'accueil, onglets à pastille glissante,
-    // ---- pages à balayer. La logique de recherche (queryFlow / tabFlow / requêtes) reste inchangée.
+    // ---- Redesign (UI seulement) : onglets à pastille glissante + pages à balayer.
+    // ---- La logique de recherche (queryFlow / tabFlow / requêtes) reste inchangée.
     val rdDark = __theme.isDark
     val rdX = com.example.ui.i18n.rememberExtraStrings()
     val rdPageLabels = listOf("All", "People", "Groups", "Channels", "Bots")
@@ -249,114 +292,101 @@ fun DiscoverUsersScreen(
     LaunchedEffect(rdPager.isScrollInProgress) {
         if (rdPager.isScrollInProgress) keyboardController?.hide()
     }
-    val rdMe = com.example.ui.GlobalAppState.liveMyProfile
+    fun rdCount(n: Long): String = when {
+        n >= 1_000_000L -> String.format(java.util.Locale.US, "%.1fM", n / 1_000_000.0)
+        n >= 1_000L -> String.format(java.util.Locale.US, "%.1fK", n / 1_000.0)
+        else -> n.toString()
+    }
 
-    Scaffold(
-        containerColor = com.example.ui.redesign.RdColors.bg(rdDark),
-        contentWindowInsets = WindowInsets.systemBars
-    ) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            HomeTopBar(
-                hint = com.example.ui.i18n.LocalTranslation.current.searchPlaceholder,
-                avatarUrl = rdMe?.avatarUrl,
-                initial = ((rdMe?.fullName?.takeIf { it.isNotBlank() } ?: rdMe?.username) ?: "").trim().take(1).uppercase().ifBlank { "H" },
-                isSearching = true,
-                query = searchQuery,
-                onQueryChange = { searchQuery = it },
-                onSearchActivate = {},
-                onCloseSearch = onBack,
-                onMenuClick = {},
-                onAvatarClick = {}
-            )
-            com.example.ui.redesign.RdTabStrip(
-                labels = rdPageLabels,
-                isDark = rdDark,
-                progress = { rdPager.currentPage + rdPager.currentPageOffsetFraction },
-                onSelect = { i ->
-                    coroutineScope.launch {
-                        rdPager.animateScrollToPage(
-                            i,
-                            animationSpec = androidx.compose.animation.core.tween(280, easing = com.example.ui.redesign.RdDecelerateEasing(1.5f))
+    Column(modifier = modifier.background(com.example.ui.redesign.RdColors.bg(rdDark))) {
+        com.example.ui.redesign.RdTabStrip(
+            labels = rdPageLabels,
+            isDark = rdDark,
+            progress = { rdPager.currentPage + rdPager.currentPageOffsetFraction },
+            onSelect = { i ->
+                coroutineScope.launch {
+                    rdPager.animateScrollToPage(
+                        i,
+                        animationSpec = androidx.compose.animation.core.tween(280, easing = com.example.ui.redesign.RdDecelerateEasing(1.5f))
+                    )
+                }
+            }
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(com.example.ui.redesign.RdColors.divider(rdDark))
+        )
+        androidx.compose.foundation.pager.HorizontalPager(
+            state = rdPager,
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        ) { page ->
+            // Les résultats déjà chargés sont filtrés par type pour chaque page (pas de nouvelle requête)
+            val pageResults = when (page) {
+                0 -> searchResults
+                1 -> searchResults.filter { it.id !in channelIdSet && it.id !in botIdSet }
+                2 -> emptyList()
+                3 -> searchResults.filter { it.id in channelIdSet }
+                else -> searchResults.filter { it.id in botIdSet }
+            }
+            val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+            LaunchedEffect(listState.isScrollInProgress) {
+                if (listState.isScrollInProgress) keyboardController?.hide()
+            }
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                if (pageResults.isEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(top = 90.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(CircleShape)
+                                    .background(com.example.ui.redesign.RdColors.chip(rdDark))
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(rdX.rdNoResults, color = __textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (searchQuery.isEmpty()) rdX.rdTryDifferent else "${com.example.ui.i18n.LocalTranslation.current.noResultsFoundFor} '$searchQuery'",
+                                color = __textSecondary,
+                                fontSize = 15.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    item {
+                        Text(
+                            text = if (searchQuery.isEmpty()) rdX.rdSearchRemnants else rdX.rdSearchResults,
+                            fontSize = 14.sp,
+                            color = __textSecondary,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp)
                         )
                     }
-                }
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(com.example.ui.redesign.RdColors.divider(rdDark))
-            )
-            androidx.compose.foundation.pager.HorizontalPager(
-                state = rdPager,
-                modifier = Modifier.weight(1f).fillMaxWidth()
-            ) { page ->
-                // Les résultats déjà chargés sont filtrés par type pour chaque page (pas de nouvelle requête)
-                val pageResults = when (page) {
-                    0 -> searchResults
-                    1 -> searchResults.filter { it.id !in channelIdSet && it.id !in botIdSet }
-                    2 -> emptyList()
-                    3 -> searchResults.filter { it.id in channelIdSet }
-                    else -> searchResults.filter { it.id in botIdSet }
-                }
-                val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-                LaunchedEffect(listState.isScrollInProgress) {
-                    if (listState.isScrollInProgress) keyboardController?.hide()
-                }
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                    if (pageResults.isEmpty()) {
-                        item {
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(top = 90.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(80.dp)
-                                        .clip(CircleShape)
-                                        .background(com.example.ui.redesign.RdColors.chip(rdDark))
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(rdX.rdNoResults, color = __textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = if (searchQuery.isEmpty()) rdX.rdTryDifferent else "${com.example.ui.i18n.LocalTranslation.current.noResultsFoundFor} '$searchQuery'",
-                                    color = __textSecondary,
-                                    fontSize = 15.sp,
-                                    textAlign = TextAlign.Center
-                                )
+                    items(pageResults, key = { it.id }) { user ->
+                        RealUserListItemClone(
+                            user = user,
+                            kindLabel = when {
+                                user.id in botIdSet -> rdX.rdKindBot
+                                user.id in channelIdSet -> channelCounts[user.id]?.let { "${rdCount(it)} ${rdX.rdSubscribers}" } ?: rdX.rdKindChannel
+                                else -> null
+                            },
+                            onClick = {
+                                keyboardController?.hide()
+                                focusManager.clearFocus()
+                                if (user.id in botIdSet) onBotClick(user.id, user.fullName ?: "Bot")
+                                else if (user.id in channelIdSet) {
+                                    if (user.id in memberChannelIds) onChannelClick(user.id, user.fullName ?: "Channel") else pendingChannel = user
+                                } else onUserClick(user.id)
                             }
-                        }
-                    } else {
-                        item {
-                            Text(
-                                text = if (searchQuery.isEmpty()) rdX.rdSearchRemnants else rdX.rdSearchResults,
-                                fontSize = 14.sp,
-                                color = __textSecondary,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp)
-                            )
-                        }
-                        items(pageResults, key = { it.id }) { user ->
-                            RealUserListItemClone(
-                                user = user,
-                                kindLabel = when {
-                                    user.id in botIdSet -> rdX.rdKindBot
-                                    user.id in channelIdSet -> rdX.rdKindChannel
-                                    else -> null
-                                },
-                                onClick = {
-                                    keyboardController?.hide()
-                                    focusManager.clearFocus()
-                                    if (user.id in botIdSet) onBotClick(user.id, user.fullName ?: "Bot")
-                                    else if (user.id in channelIdSet) {
-                                        if (user.id in memberChannelIds) onChannelClick(user.id, user.fullName ?: "Channel") else pendingChannel = user
-                                    } else onUserClick(user.id)
-                                }
-                            )
-                        }
-                        item { Spacer(modifier = Modifier.height(24.dp)) }
+                        )
                     }
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
             }
         }
