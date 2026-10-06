@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -538,4 +539,14 @@ private fun DrawScope.rdPeopleIcon(cx: Float, cy: Float, s: Float, color: Color)
         cubicTo(x(0.54f), y(0.58f), x(0.68f), y(0.66f), x(0.68f), y(0.92f))
     }
     drawPath(b1, color, style = st)
+}
+
+/**
+ * Texte « TextView » du prototype : sans espacement de lettres ni hauteur de ligne imposée.
+ * Le thème Material 3 de l'application impose bodyLarge (letterSpacing 0.5sp, lineHeight 24sp) à tout `Text`,
+ * ce qui agrandit les puces, boutons et aperçus par rapport au prototype.
+ */
+@Composable
+fun RdPlainText(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalTextStyle provides TextStyle.Default, content = content)
 }

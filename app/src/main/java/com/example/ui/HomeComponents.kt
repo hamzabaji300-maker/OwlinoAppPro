@@ -62,6 +62,24 @@ fun HomeTopBar(
     onMenuClick: () -> Unit,
     onAvatarClick: () -> Unit
 ) {
+    com.example.ui.redesign.RdPlainText {
+        HomeTopBarImpl(hint, avatarUrl, initial, isSearching, query, onQueryChange, onSearchActivate, onCloseSearch, onMenuClick, onAvatarClick)
+    }
+}
+
+@Composable
+private fun HomeTopBarImpl(
+    hint: String,
+    avatarUrl: String?,
+    initial: String,
+    isSearching: Boolean,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSearchActivate: () -> Unit,
+    onCloseSearch: () -> Unit,
+    onMenuClick: () -> Unit,
+    onAvatarClick: () -> Unit
+) {
     val themeConfig = LocalSettingsTheme.current
     val theme = themeConfig.theme
     val isDark = theme.isDark

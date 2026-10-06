@@ -298,6 +298,7 @@ fun DiscoverUsersBody(
         else -> n.toString()
     }
 
+    com.example.ui.redesign.RdPlainText {
     Column(modifier = modifier.background(com.example.ui.redesign.RdColors.bg(rdDark))) {
         com.example.ui.redesign.RdTabStrip(
             labels = rdPageLabels,
@@ -391,6 +392,7 @@ fun DiscoverUsersBody(
             }
         }
     }
+    }
 }
 
 // Removed mock rendering functions
@@ -403,6 +405,7 @@ fun RealUserListItemClone(user: Profile, onClick: () -> Unit, kindLabel: String?
     val __textSecondary = __theme.textSecondary
     val rdDark = __theme.isDark
 
+    com.example.ui.redesign.RdPlainText {
     // Séparateur inséré à 72dp comme dans l'écran de référence
     Box(
         modifier = Modifier
@@ -470,5 +473,6 @@ fun RealUserListItemClone(user: Profile, onClick: () -> Unit, kindLabel: String?
             color = Color(0xFF8E8E93),
             modifier = Modifier.size(20.dp)
         )
+    }
     }
 }

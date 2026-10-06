@@ -126,6 +126,20 @@ fun UserListScreen(
     onUpdateFollowing: (Int) -> Unit,
     embedded: Boolean = false
 ) {
+    com.example.ui.redesign.RdPlainText {
+        UserListScreenImpl(initialType, onBack, onUserClick, onUpdateFollowers, onUpdateFollowing, embedded)
+    }
+}
+
+@Composable
+private fun UserListScreenImpl(
+    initialType: String,
+    onBack: () -> Unit,
+    onUserClick: (UserListModel) -> Unit,
+    onUpdateFollowers: (Int) -> Unit,
+    onUpdateFollowing: (Int) -> Unit,
+    embedded: Boolean = false
+) {
     val uiCfg = LocalSettingsTheme.current
     val uiAccent = uiCfg.accent
     val uiDark = uiCfg.theme.isDark
@@ -475,7 +489,7 @@ fun UserListScreen(
                                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
                                             modifier = Modifier.height(32.dp)
                                         ) {
-                                            Text(com.example.ui.i18n.LocalTranslation.current.unblock, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                            Text(com.example.ui.i18n.LocalTranslation.current.unblock, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.sp, lineHeight = 16.sp)
                                         }
                                     } else {
                                         Button(
@@ -519,7 +533,7 @@ fun UserListScreen(
                                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
                                             modifier = Modifier.height(32.dp)
                                         ) {
-                                            Text(if (user.isFollowing) com.example.ui.i18n.LocalTranslation.current.following else com.example.ui.i18n.LocalTranslation.current.follow, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                            Text(if (user.isFollowing) com.example.ui.i18n.LocalTranslation.current.following else com.example.ui.i18n.LocalTranslation.current.follow, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.sp, lineHeight = 16.sp)
                                         }
                                     }
                                     

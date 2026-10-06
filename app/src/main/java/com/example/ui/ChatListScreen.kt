@@ -1927,6 +1927,7 @@ fun ChatItem(
     onLongClick: (androidx.compose.ui.geometry.Rect) -> Unit = {},
     debugShowEvent: Boolean = false
 ) {
+    com.example.ui.redesign.RdPlainText {
     val __themeConfig = com.example.ui.LocalSettingsTheme.current
     val __theme = __themeConfig.theme
     val isDarkState = __theme.isDark
@@ -2076,7 +2077,7 @@ fun ChatItem(
                     Text(
                         text = highlightQuery(name, searchQuery, __textPrimary, Color(0xFF3B82F6)),
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                         color = __textPrimary,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -2250,7 +2251,7 @@ fun ChatItem(
                             if (!isImage) com.example.emoji.EmojiMessageUtils.parseSupportedEmojiSequence(rawMsg) else null
                         }
 
-                        val msgTextColor = if (isMine) Color(0xFF3B82F6) else subtitleColor
+                        val msgTextColor = if (isMine) Color(0xFF3B82F6) else com.example.ui.redesign.RdColors.preview(isDark)
 
                         if (previewEmojiSequence != null) {
                             // الإيموجيات في سطر واحد بعرض الصف كامل (زي تيليجرام) — والباقي "…"
@@ -2324,6 +2325,7 @@ fun ChatItem(
                 }
             }
         }
+    }
     }
 }
 
