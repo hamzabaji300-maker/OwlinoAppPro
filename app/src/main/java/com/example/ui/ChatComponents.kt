@@ -111,12 +111,15 @@ fun MessageBubble(
     val textColor = if (isMe) Color.White else if (__theme.isDark) Color.White else Color.Black
     val timeColor = textColor.copy(alpha = 0.6f)
 
+    // Forme « Telegram » : coins 18dp, coin voisin 5dp dans un groupe, petite queue sur le dernier message.
     val shape = RoundedCornerShape(
-        topStart = if (!isMe && !isFirstInCluster) 4.dp else 20.dp,
-        topEnd = if (isMe && !isFirstInCluster) 4.dp else 20.dp,
-        bottomStart = if (!isMe && !isLastInCluster) 4.dp else 20.dp,
-        bottomEnd = if (isMe && !isLastInCluster) 4.dp else 20.dp
+        topStart = if (!isMe && !isFirstInCluster) 5.dp else 18.dp,
+        topEnd = if (isMe && !isFirstInCluster) 5.dp else 18.dp,
+        bottomStart = if (!isMe) (if (isLastInCluster) 0.dp else 5.dp) else 18.dp,
+        bottomEnd = if (isMe) (if (isLastInCluster) 0.dp else 5.dp) else 18.dp
     )
+    val __isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    val __tailOnRight = if (isMe) !__isRtl else __isRtl
 
     var touchOffset by remember { mutableStateOf(Offset.Zero) }
     val configuration = LocalConfiguration.current
@@ -155,6 +158,27 @@ fun MessageBubble(
         Column(
             modifier = Modifier
                 .widthIn(min = 60.dp, max = if (msg.reactions.isNotEmpty()) screenWidth * 0.74f else screenWidth * 0.85f)
+                .let { m ->
+                    if (isEmojiOnlyMessage || !isLastInCluster) m else m.drawBehind {
+                        val d = 1.dp.toPx()
+                        val w = size.width
+                        val h = size.height
+                        val tail = androidx.compose.ui.graphics.Path()
+                        if (__tailOnRight) {
+                            tail.moveTo(w - 6f * d, h - 12f * d)
+                            tail.lineTo(w, h - 12f * d)
+                            tail.quadraticBezierTo(w + 0.5f * d, h - 1f * d, w + 6f * d, h)
+                            tail.lineTo(w - 6f * d, h)
+                        } else {
+                            tail.moveTo(6f * d, h - 12f * d)
+                            tail.lineTo(0f, h - 12f * d)
+                            tail.quadraticBezierTo(-0.5f * d, h - 1f * d, -6f * d, h)
+                            tail.lineTo(6f * d, h)
+                        }
+                        tail.close()
+                        drawPath(tail, bubbleColor)
+                    }
+                }
                 .let { if (isEmojiOnlyMessage) it else it.clip(shape).background(bubbleColor) }
                 .pointerInput(Unit) {
                     detectTapGestures(
@@ -414,7 +438,7 @@ fun MessageBubble(
                     if (isSingleLine) {
                         val richSingle = remember(cleanText) { buildRichMessageContent(cleanText, 19.sp, 20.dp) }
                         FlowRow(
-                            modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp)
+                            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)
                         ) {
                             Text(
                                 text = richSingle.text,
@@ -448,7 +472,7 @@ fun MessageBubble(
                         }
                     } else {
                         Column(
-                            modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 8.dp)
+                            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 5.dp)
                         ) {
                             if (detectedUrl != null) {
                                 LinkPreviewCard(url = detectedUrl, isMe = isMe, textColor = textColor)
