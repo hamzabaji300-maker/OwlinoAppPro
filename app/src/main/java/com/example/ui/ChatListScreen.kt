@@ -2083,6 +2083,9 @@ fun ChatItem(
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = androidx.compose.ui.Modifier.weight(1f, fill = false)
                     )
+                    if (isVerified) {
+                        com.example.ui.VerifiedBadge(isVerified = true, modifier = Modifier.padding(start = 6.dp), iconSize = 16.dp, tint = verifiedTint)
+                    }
                     if (debugShowEvent) {
                         Spacer(modifier = Modifier.width(4.dp))
                         androidx.compose.foundation.layout.Box(modifier = Modifier.background(Color.Red, androidx.compose.foundation.shape.RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) {
@@ -2116,9 +2119,6 @@ fun ChatItem(
                     }
                     if (isMuted) {
                         Icon(imageVector = Lucide.BellOff, contentDescription = "Muted", tint = subtitleColor, modifier = Modifier.padding(start = 6.dp).size(15.dp))
-                    }
-                    if (isVerified) {
-                        com.example.ui.VerifiedBadge(isVerified = true, modifier = Modifier.padding(start = 6.dp), iconSize = 16.dp, tint = verifiedTint)
                     }
                     if (hasSparkleBadge) {
                         val gradient = androidx.compose.ui.graphics.Brush.linearGradient(colors = listOf(Color(0xFFFFD700), Color(0xFFFFA500)))
@@ -2281,6 +2281,7 @@ fun ChatItem(
                         } else {
                             Text(
                                 text = highlightQuery(displayMsg, searchQuery, msgTextColor, Color(0xFF3B82F6)),
+                                color = msgTextColor,
                                 fontSize = 14.sp, 
                                 maxLines = 1, 
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
