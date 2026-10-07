@@ -35,6 +35,21 @@ class MyApplication : Application(), ImageLoaderFactory {
             }
         } catch (e: Throwable) {}
 
+        // عودة الشبكة => Prefetch (لا اتصال جديد بالسيرفر؛ فقط تشغيل Worker موجود)
+        try {
+            val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            var lastTrigger = 0L
+            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastTrigger > 60_000L) {
+                        lastTrigger = now
+                        com.example.worker.BackgroundSyncWorker.enqueueNow(applicationContext)
+                    }
+                }
+            })
+        } catch (e: Throwable) {}
+
         try {
             app.rive.runtime.kotlin.core.Rive.init(this)
         } catch (e: Exception) {

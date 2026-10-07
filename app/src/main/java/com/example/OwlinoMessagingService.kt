@@ -32,6 +32,8 @@ class OwlinoMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
+        // رسالة جديدة => حدّث Room والوسائط مسبقاً
+        try { com.example.worker.BackgroundSyncWorker.enqueueNow(applicationContext) } catch (e: Throwable) {}
 
         // استخراج البيانات بشكل آمن سواء جاءت في الـ data أو الـ notification
         val title = remoteMessage.data["title"] ?: remoteMessage.notification?.title ?: "رسالة جديدة"

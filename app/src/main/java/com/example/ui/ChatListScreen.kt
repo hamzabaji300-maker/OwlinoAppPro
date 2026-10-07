@@ -1,4 +1,7 @@
 package com.example.ui
+
+import com.example.cache.insertMerged
+import com.example.cache.insertMergedAll
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.*
@@ -514,7 +517,7 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
                                )
                             }
                             // Preload all messages into cache so ChatDetailScreen is instant
-                            cachedDb.cachedMessageDao().insertCachedMessages(toCache)
+                            cachedDb.cachedMessageDao().insertMergedAll(toCache)
                         } catch(e: Exception) {}
                     }
                     

@@ -1,5 +1,8 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.example.ui
+
+import com.example.cache.insertMerged
+import com.example.cache.insertMergedAll
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.ui.draw.shadow
@@ -325,6 +328,11 @@ cachedChatDao.insertCachedChats(listOf(existingCachedChat.copy(unread_count = 0)
             com.example.AppState.chatMessagesCache[chatId] ?: MessageListCache.loadMessages(context, chatId) ?: emptyList()
         ) 
     }
+    val localStore = remember(context) { ChatLocalStore(context) }
+    // لقطة آخر ما أتى من Room + معرّفات محذوفة + معرّفات شوهدت في الواجهة (للكتابة الراجعة إلى Room)
+    val lastDbSnapshot = remember(chatId) { java.util.concurrent.ConcurrentHashMap<String, MessageModel>() }
+    val deletedMessageIds = remember(chatId) { java.util.concurrent.ConcurrentHashMap.newKeySet<String>() }
+    val uiIdsSeen = remember(chatId) { java.util.concurrent.ConcurrentHashMap.newKeySet<String>() }
     androidx.compose.runtime.LaunchedEffect(messages) {
         // Mémoire à jour immédiatement ; écriture disque regroupée et hors du thread principal (anti-saccade)
         com.example.AppState.chatMessagesCache[chatId] = messages
@@ -397,6 +405,78 @@ cachedChatDao.insertCachedChats(listOf(existingCachedChat.copy(unread_count = 0)
     // Cache loaded in the main LaunchedEffect
 
     var myUserId by remember { mutableStateOf<String?>(null) }
+    // Room هو المصدر الوحيد: كل رسالة (فردية/مجموعة/قناة/بوت/محفوظة) تصل للواجهة من هنا فقط.
+    // نستعمل معرّف الجلسة المخزّنة محلياً مباشرة حتى لا ننتظر الشبكة (أول إطار صحيح isMine).
+    val roomUserId = myUserId ?: (try { com.example.supabase.auth.currentSessionOrNull()?.user?.id } catch (e: Exception) { null })
+    androidx.compose.runtime.LaunchedEffect(chatId, roomUserId) {
+        localStore.getMessages(chatId, roomUserId, name).collect { dbMsgs ->
+            lastDbSnapshot.clear()
+            dbMsgs.forEach { lastDbSnapshot[it.id] = it }
+            val merged = withContext(Dispatchers.Default) { mergeRoomIntoUi(dbMsgs, messages, deletedMessageIds) }
+            if (merged != messages) messages = merged
+        }
+    }
+    // كتابة راجعة إلى Room لكل ما تغيّر حيّاً (تفاعل/تعديل/قراءة/حذف/رسائل البوت) فيبقى Room دائماً هو الحقيقة
+    androidx.compose.runtime.LaunchedEffect(messages) {
+        if (messages.isEmpty() && uiIdsSeen.isEmpty()) return@LaunchedEffect
+        kotlinx.coroutines.delay(400)
+        val snap = messages
+        withContext(Dispatchers.IO) {
+            try {
+                val ids = snap.map { it.id }.toHashSet()
+                deletedMessageIds.removeAll(ids)
+                val removed = uiIdsSeen.filter { it !in ids && lastDbSnapshot.containsKey(it) }
+                removed.forEach { rid ->
+                    deletedMessageIds.add(rid)
+                    cachedMessageDao.deleteMessageById(rid)
+                }
+                uiIdsSeen.clear()
+                uiIdsSeen.addAll(ids)
+                val myId = roomUserId ?: "me"
+                snap.forEach { m ->
+                    if (m.status == MessageStatus.SENDING || m.status == MessageStatus.FAILED) return@forEach
+                    val d = lastDbSnapshot[m.id]
+                    if (d == null) {
+                        // رسائل البوتات تُبنى محلياً فقط: نكتبها في Room لتُفتح فوراً لاحقاً
+                        if (isBotChat) {
+                            cachedMessageDao.insertMerged(
+                                com.example.cache.CachedMessage(
+                                    id = m.id,
+                                    chat_id = chatId,
+                                    sender_id = if (m.isMine) myId else "bot",
+                                    content = m.text,
+                                    created_at = m.createdAtExact ?: java.time.Instant.ofEpochMilli(m.timestamp).toString(),
+                                    status = "SENT",
+                                    message_type = m.attachments.firstOrNull()?.type?.let {
+                                        when (it) { AttachmentType.IMAGE -> "image"; AttachmentType.VIDEO -> "video"; AttachmentType.VOICE -> "voice"; else -> "file" }
+                                    },
+                                    media_url = m.attachments.firstOrNull()?.url,
+                                    thumbnail_url = m.attachments.firstOrNull()?.thumbnailUrl,
+                                    media_aspect_ratio = m.attachments.firstOrNull()?.aspectRatio,
+                                    reactions = ChatLocalStore.encodeReactions(m.reactions),
+                                    reply_markup = m.replyMarkup,
+                                    edited_at = if (m.isEdited) java.time.Instant.now().toString() else null
+                                )
+                            )
+                        }
+                        return@forEach
+                    }
+                    val readUp = m.status == MessageStatus.READ && d.status != MessageStatus.READ
+                    if (m.text != d.text || m.isEdited != d.isEdited || m.reactions != d.reactions || readUp || m.replyMarkup != d.replyMarkup) {
+                        cachedMessageDao.updateVolatile(
+                            m.id, m.text,
+                            if (m.isEdited && !d.isEdited) java.time.Instant.now().toString() else null,
+                            if (m.status == MessageStatus.READ) "READ" else "SENT",
+                            ChatLocalStore.encodeReactions(m.reactions),
+                            m.replyMarkup
+                        )
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) { }
+        }
+    }
     var isChannelAdmin by remember { mutableStateOf(false) }
     var channelSubscriberCount by remember { mutableStateOf<Int?>(null) }
 
@@ -831,11 +911,7 @@ currentUserId) } }.decodeSingleOrNull<Profile>()
        }
        isNetworkFetchComplete = true
           
-       kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-           messages = finalMergedMessages
-       }
-
-       // messages updated via Room collect
+       // UI is driven purely by Room (ChatLocalStore collect loop)
 
        try {
           val toCache = fetchedMsgs.map { msg ->
@@ -852,10 +928,12 @@ currentUserId) } }.decodeSingleOrNull<Profile>()
                 thumbnail_url = remoteMsg?.thumbnail_url,
                 reply_to_id = msg.replyToId,
                 media_aspect_ratio = remoteMsg?.media_aspect_ratio,
-                media_group_id = remoteMsg?.media_group_id
+                media_group_id = remoteMsg?.media_group_id,
+                edited_at = remoteMsg?.edited_at,
+                reactions = ChatLocalStore.encodeReactions(msg.reactions)
              )
           }
-          cachedMessageDao.insertCachedMessages(toCache)
+          cachedMessageDao.insertMergedAll(toCache)
           if (readMessageIds.isNotEmpty()) {
               readMessageIds.toList().chunked(500).forEach { cachedMessageDao.markMessagesRead(it) }
           }
@@ -1049,8 +1127,7 @@ record.reply_to_id } else null
                           mediaGroupId = record.media_group_id,
                           isEdited = record.edited_at != null
                         )
-                        messages = (messages + newMsg).distinctBy { it.id }
-
+                        // Removed manual messages addition; UI reads from Room automatically
                         // Optimistic update of local chat lists (for received messages)
                         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                             try {
@@ -1084,7 +1161,7 @@ record.reply_to_id } else null
                         }
 
                         try {
-                           cachedMessageDao.insertCachedMessage(
+                           cachedMessageDao.insertMerged(
                               com.example.cache.CachedMessage(
                                 id = record.id,
                                 chat_id = record.chat_id,
@@ -1097,7 +1174,8 @@ record.reply_to_id } else null
                                 thumbnail_url = record.thumbnail_url,
                                 reply_to_id = record.reply_to_id,
                                 media_aspect_ratio = record.media_aspect_ratio,
-                                media_group_id = record.media_group_id
+                                media_group_id = record.media_group_id,
+                                edited_at = record.edited_at
                                )
                             )
                          } catch(e: Exception) {}
@@ -2100,7 +2178,7 @@ java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("H
                                       )))
                                   }
                                   
-                                  cachedMessageDao.insertCachedMessage(
+                                  cachedMessageDao.insertMerged(
                                       com.example.cache.CachedMessage(
                                           id = tempId,
                                           chat_id = chatId,
@@ -2135,7 +2213,7 @@ com.example.supabase.postgrest["messages"].insert(insertData) {
                               val timeStr = formatTimeSafe(result.created_at)
 
                               try {
-                                 cachedMessageDao.insertCachedMessage(
+                                 cachedMessageDao.insertMerged(
                                     com.example.cache.CachedMessage(
                                       id = result.id,
                                       chat_id = result.chat_id,
@@ -2329,7 +2407,7 @@ MessageStatus.SENT, time = timeStr) else it
                                 )))
                             }
                             for (pair in tempMsgsWithUris) {
-                                cachedMessageDao.insertCachedMessage(
+                                cachedMessageDao.insertMerged(
                                     com.example.cache.CachedMessage(
                                         id = pair.first.id,
                                         chat_id = chatId,
@@ -2397,7 +2475,7 @@ MessageStatus.SENT, time = timeStr) else it
                                     val docMeta = docMetaByUri?.get(uri)
                                     val attachment = Attachment(messageId = result.id, type = type, url = signedUrl, thumbnailUrl = result.thumbnail_url, aspectRatio = calculatedRatio, fileName = docMeta?.first, fileSize = docMeta?.second)
                                     try {
-                                        cachedMessageDao.insertCachedMessage(
+                                        cachedMessageDao.insertMerged(
                                             com.example.cache.CachedMessage(
                                                 id = result.id,
                                                 chat_id = result.chat_id,
