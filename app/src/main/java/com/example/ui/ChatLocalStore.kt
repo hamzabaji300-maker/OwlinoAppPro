@@ -4,6 +4,7 @@ import android.content.Context
 import com.example.cache.AppDatabase
 import com.example.cache.CachedMessage
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 class ChatLocalStore(private val context: Context) {
@@ -20,6 +21,14 @@ class ChatLocalStore(private val context: Context) {
 
         fun decodeReactions(raw: String?): List<String> =
             if (raw.isNullOrEmpty()) emptyList() else raw.split(SEP).filter { it.isNotEmpty() }
+    }
+
+    /** قراءة واحدة من Room (للتسخين المسبق في الخلفية، تُستدعى خارج الخيط الرئيسي). */
+    suspend fun loadOnce(chatId: String, currentUserId: String?, otherUserName: String = ""): List<MessageModel> {
+        val list = dao.getRecentMessagesForChat(chatId, WINDOW).first().map { it.toMessageModel(currentUserId, otherUserName) }
+        return list.map { msg ->
+            if (msg.replyToId != null) msg.copy(replyTo = list.find { it.id == msg.replyToId }) else msg
+        }
     }
 
     fun getMessages(chatId: String, currentUserId: String?, otherUserName: String = ""): Flow<List<MessageModel>> {

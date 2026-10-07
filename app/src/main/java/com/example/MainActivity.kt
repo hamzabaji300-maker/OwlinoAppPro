@@ -154,7 +154,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         )
 
         // Prefetch فوري عند فتح التطبيق (لا يتكدس: KEEP)
-        com.example.worker.BackgroundSyncWorker.enqueueNow(applicationContext)
+        com.example.worker.BackgroundSyncWorker.enqueueNow(applicationContext, delaySeconds = 20L)
 
                 // Setup Storage Cleanup Worker
         val cleanupRequest = androidx.work.PeriodicWorkRequestBuilder<com.example.worker.StorageCleanupWorker>(7, java.util.concurrent.TimeUnit.DAYS)

@@ -44,7 +44,7 @@ class MyApplication : Application(), ImageLoaderFactory {
                     val now = System.currentTimeMillis()
                     if (now - lastTrigger > 60_000L) {
                         lastTrigger = now
-                        com.example.worker.BackgroundSyncWorker.enqueueNow(applicationContext)
+                        com.example.worker.BackgroundSyncWorker.enqueueNow(applicationContext, delaySeconds = 20L)
                     }
                 }
             })

@@ -44,7 +44,7 @@ class BackgroundSyncWorker(
 
     companion object {
         private const val ONE_TIME_NAME = "BackgroundSyncNow"
-        private const val MAX_THUMBS_PER_RUN = 400
+        private const val MAX_THUMBS_PER_RUN = 150
         private const val TOP_CHATS_FOR_MEDIA = 12
         private const val TOP_CHATS_FOR_FULL_IMAGES = 5
         private const val MAX_VOICE_PER_CHAT = 12
@@ -57,9 +57,11 @@ class BackgroundSyncWorker(
         private val URL_REGEX = Regex("https?://[\\w\\d\\-_]+(\\.[\\w\\d\\-_]+)+([\\w\\d\\-.,@?^=%&:/~+#]*[\\w\\d\\-@?^=%&/~+#])?")
 
         /** تشغيل فوري (فتح التطبيق / عودة الشبكة / وصول رسالة). KEEP: لا يتكدس أكثر من تشغيل واحد. */
-        fun enqueueNow(context: Context) {
+        fun enqueueNow(context: Context, delaySeconds: Long = 0L) {
             try {
                 val req = androidx.work.OneTimeWorkRequestBuilder<BackgroundSyncWorker>()
+                    .setInitialDelay(delaySeconds, java.util.concurrent.TimeUnit.SECONDS)
+                    .setInputData(androidx.work.workDataOf("messages_only" to true))
                     .setConstraints(
                         androidx.work.Constraints.Builder()
                             .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
@@ -158,6 +160,7 @@ class BackgroundSyncWorker(
             // إلغاء آمن عند انخفاض البطارية (ما لم يكن الجهاز يشحن)
             if (isBatteryLow()) return@withContext Result.success()
 
+            val messagesOnly = inputData.getBoolean("messages_only", false)
             val metered = isMetered()
             val imageLoader = context.imageLoader
 
@@ -265,8 +268,12 @@ class BackgroundSyncWorker(
                             if (thumbs >= MAX_THUMBS_PER_RUN) break
                             val thumb = msg.thumbnail_url ?: if (msg.message_type == "image") msg.media_url else null
                             if (thumb != null) {
-                                imageLoader.enqueue(ImageRequest.Builder(context).data(thumb).build())
+                                imageLoader.enqueue(
+                                    ImageRequest.Builder(context).data(thumb).size(256)
+                                        .memoryCachePolicy(coil.request.CachePolicy.DISABLED).build()
+                                )
                                 thumbs++
+                                kotlinx.coroutines.delay(20) // لا نُغرق الشبكة/المعالج
                             }
                         }
 
@@ -274,7 +281,13 @@ class BackgroundSyncWorker(
                         if (!metered && rank < TOP_CHATS_FOR_FULL_IMAGES) {
                             rows.filter { it.message_type == "image" && it.media_url != null }
                                 .take(MAX_FULL_IMAGES_PER_CHAT)
-                                .forEach { imageLoader.enqueue(ImageRequest.Builder(context).data(it.media_url).build()) }
+                                .forEach {
+                                    imageLoader.enqueue(
+                                        ImageRequest.Builder(context).data(it.media_url).size(720)
+                                            .memoryCachePolicy(coil.request.CachePolicy.DISABLED).build()
+                                    )
+                                    kotlinx.coroutines.delay(40)
+                                }
                         }
 
                         // المقاطع الصوتية الصغيرة -> ملف محلي + مدة محفوظة (تُشغَّل فوراً حتى بلا شبكة)
@@ -348,6 +361,9 @@ class BackgroundSyncWorker(
                     }
                 }
 
+                // تشغيل فوري (فتح/شبكة/إشعار): لا نكتب صفوف قائمة المحادثات أبداً؛ الشاشة الرئيسية و realtime مسؤولان عنها
+                if (messagesOnly) return@withContext Result.success()
+
                 // Prefetch remote chats for ChatEntities
                 val remoteChats = try {
                     supabase.postgrest["chats"].select(io.github.jan.supabase.postgrest.query.Columns.list("id, type, title, avatar_url")) {
@@ -374,41 +390,40 @@ class BackgroundSyncWorker(
                 val chatDao = dataDb.chatDao()
                 val roomChats = chatDao.getAllChats().firstOrNull() ?: emptyList()
 
-                val newEntities = remoteChats.map { rc ->
+                val newEntities = remoteChats.mapNotNull { rc ->
                     val isGroupOrChannel = rc.type == "group" || rc.type == "channel"
+                    val existingChat = roomChats.find { it.id == rc.id }
+                    val lastMsg = allMsgs.firstOrNull { it.chat_id == rc.id }
+                    // فشل جلب رسائل هذه المحادثة: لا نمسح آخر رسالة ولا الترتيب (كان يُنزل المحادثة لآخر القائمة)
+                    if (existingChat != null) {
+                        if (lastMsg == null) return@mapNotNull null
+                        val ts = com.example.ui.parseTimestampSafe(lastMsg.created_at)
+                        val fresh = chatDao.getChatById(rc.id) ?: existingChat
+                        if (ts <= fresh.timestamp) return@mapNotNull null
+                        return@mapNotNull fresh.copy(
+                            message = lastMsg.content,
+                            time = com.example.ui.formatTimeSafe(lastMsg.created_at),
+                            timestamp = ts,
+                            isMine = lastMsg.sender_id == currentUserId,
+                            isReadReceipt = false,
+                            lastMediaType = lastMsg.message_type,
+                            lastMediaUrl = lastMsg.media_url,
+                            lastThumbnailUrl = lastMsg.thumbnail_url
+                        )
+                    }
+
                     val otherUserId = allMembers.find { it.chat_id == rc.id && it.user_id != currentUserId }?.user_id
                     val otherProfile = profiles[otherUserId]
-                    val realName = if (isGroupOrChannel) (rc.title ?: "Chat ${rc.id.take(4)}")
-                                    else (otherProfile?.fullName ?: otherProfile?.username ?: "Chat ${rc.id.take(4)}")
-                    val avatar = if (isGroupOrChannel) rc.avatar_url else otherProfile?.avatarUrl
-                    
-                    val lastMsg = allMsgs.firstOrNull { it.chat_id == rc.id }
+                    // إذا فشل جلب الأعضاء/البروفايلات نحتفظ بالاسم/الصورة/المعرّف المحفوظين بدل "Chat xxxx"
+                    val realName = if (isGroupOrChannel) (rc.title ?: existingChat?.name ?: "Chat ${rc.id.take(4)}")
+                                    else (otherProfile?.fullName ?: otherProfile?.username ?: existingChat?.name ?: "Chat ${rc.id.take(4)}")
+                    val avatar = if (isGroupOrChannel) rc.avatar_url
+                                 else if (otherProfile != null) otherProfile.avatarUrl
+                                 else existingChat?.avatarUrl
                     val msgText = lastMsg?.content ?: ""
-                    
-                    val timeStr = if (lastMsg != null) {
-                        val formatter = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-                        formatter.timeZone = java.util.TimeZone.getTimeZone("UTC")
-                        try {
-                            val parsed = formatter.parse(lastMsg.created_at)
-                            val now = java.util.Date()
-                            val diff = now.time - (parsed?.time ?: 0)
-                            when {
-                                diff < 60000 -> "Now"
-                                diff < 3600000 -> "${diff / 60000}m"
-                                diff < 86400000 -> "${diff / 3600000}h"
-                                else -> "${diff / 86400000}d"
-                            }
-                        } catch(e: Exception) { "Now" }
-                    } else "Now"
+                    val timeStr = if (lastMsg != null) com.example.ui.formatTimeSafe(lastMsg.created_at) else "Now"
+                    val timestamp = if (lastMsg != null) com.example.ui.parseTimestampSafe(lastMsg.created_at) else 0L
 
-                    val timestamp = try {
-                         val f = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-                         f.timeZone = java.util.TimeZone.getTimeZone("UTC")
-                         f.parse(lastMsg?.created_at ?: "")?.time ?: 0L
-                    } catch(e: Exception) { 0L }
-
-                    val existingChat = roomChats.find { it.id == rc.id }
-                    
                     // prefetch avatar
                     if (avatar != null && avatar.isNotEmpty()) {
                          val req = ImageRequest.Builder(context).data(avatar).build()
@@ -422,8 +437,8 @@ class BackgroundSyncWorker(
                         isGroup = rc.type == "group",
                         time = timeStr,
                         message = msgText,
-                        isOnline = otherProfile?.isOnlineNow ?: false,
-                        participantIds = if (otherUserId != null) otherUserId else "[]",
+                        isOnline = otherProfile?.isOnlineNow ?: existingChat?.isOnline ?: false,
+                        participantIds = if (otherUserId != null) otherUserId else (existingChat?.participantIds ?: "[]"),
                         draft = existingChat?.draft ?: "",
                         timestamp = timestamp,
                         unreadCount = existingChat?.unreadCount ?: 0,
@@ -439,9 +454,13 @@ class BackgroundSyncWorker(
                         isReadReceipt = existingChat?.isReadReceipt ?: false,
                         isMine = lastMsg?.sender_id == currentUserId,
                         isNotes = existingChat?.isNotes ?: false,
-                        isDefaultAvatar = existingChat?.isDefaultAvatar ?: false
+                        isDefaultAvatar = existingChat?.isDefaultAvatar ?: false,
+                        lastMediaType = if (lastMsg != null) lastMsg.message_type else existingChat?.lastMediaType,
+                        lastMediaUrl = if (lastMsg != null) lastMsg.media_url else existingChat?.lastMediaUrl,
+                        lastThumbnailUrl = if (lastMsg != null) lastMsg.thumbnail_url else existingChat?.lastThumbnailUrl
                     )
                 }
+                
                 chatDao.insertAll(newEntities)
                 
                 val newCachedToInsert = newEntities.map {

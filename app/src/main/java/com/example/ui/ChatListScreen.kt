@@ -382,6 +382,54 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
         }
     }
 
+    // تسخين الذاكرة: رسائل أعلى المحادثات تُقرأ من Room في الخلفية قبل أن يفتحها المستخدم (فتح فوري بلا وميض)
+    LaunchedEffect(chatsList?.take(12)?.map { it.id }) {
+        val top = chatsList?.take(12) ?: return@LaunchedEffect
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val uid = try { supabase.auth.currentUserOrNull()?.id } catch (e: Exception) { null }
+            val store = ChatLocalStore(context)
+            for (c in top) {
+                if (c.id.startsWith("dummy_")) continue
+                if (!com.example.AppState.chatMessagesCache[c.id].isNullOrEmpty()) continue
+                try {
+                    val list = store.loadOnce(c.id, uid, c.name)
+                    if (list.isNotEmpty()) com.example.AppState.chatMessagesCache.putIfAbsent(c.id, list)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) { }
+            }
+        }
+    }
+
+    // حالة "أونلاين" (النقطة الخضراء): جلب مبكر + تحديث كل 20ث بدل انتظار سلسلة طلبات القائمة الكاملة (قراءة فقط من profiles)
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            while (true) {
+                try {
+                    val ids = chatDao.getAllChats().first()
+                        .filter { !it.isGroup && !it.isChannel && !it.isBot && !it.isNotes }
+                        .mapNotNull { it.toModel().participantIds.firstOrNull() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                    if (ids.isNotEmpty()) {
+                        val fresh = supabase.postgrest["profiles"].select() {
+                            filter { isIn("id", ids) }
+                        }.decodeList<Profile>()
+                        fresh.forEach { p ->
+                            if (p.lastSeenAt != null) {
+                                liveLastSeenMap[p.id] = p.lastSeenAt
+                                p.privacySettings?.let { livePrivacyMap[p.id] = it }
+                            }
+                        }
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) { }
+                kotlinx.coroutines.delay(20_000)
+            }
+        }
+    }
+
     LaunchedEffect(roomChats) {
         if (roomChats != null && roomChats!!.isEmpty()) {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
