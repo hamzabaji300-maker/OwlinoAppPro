@@ -17,6 +17,31 @@ object MessageListCache {
         }
     }
 
+    /**
+     * Préchauffage (thread d'arrière-plan, au démarrage) : charge le fichier de préférences et décode les
+     * dernières conversations en mémoire. Ainsi l'ouverture d'une conversation ne lit plus le disque
+     * ni ne décode du JSON sur le thread principal.
+     */
+    fun warmUp(context: Context, maxChats: Int = 40) {
+        try {
+            val prefs = context.getSharedPreferences("app_messages_cache", Context.MODE_PRIVATE)
+            var n = 0
+            for ((key, value) in prefs.all) {
+                if (n >= maxChats) break
+                if (!key.startsWith("chat_msgs_") || value !is String) continue
+                val chatId = key.removePrefix("chat_msgs_")
+                if (com.example.AppState.chatMessagesCache.containsKey(chatId)) continue
+                try {
+                    val msgs = json.decodeFromString<List<MessageModel>>(value)
+                    com.example.AppState.chatMessagesCache.putIfAbsent(chatId, msgs)
+                    n++
+                } catch (e: Exception) {
+                }
+            }
+        } catch (e: Throwable) {
+        }
+    }
+
     fun loadMessages(context: Context, chatId: String): List<MessageModel>? {
         val prefs = context.getSharedPreferences("app_messages_cache", Context.MODE_PRIVATE)
         return try {

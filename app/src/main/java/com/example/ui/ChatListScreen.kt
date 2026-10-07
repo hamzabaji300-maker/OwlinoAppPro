@@ -2251,7 +2251,7 @@ fun ChatItem(
                             if (!isImage) com.example.emoji.EmojiMessageUtils.parseSupportedEmojiSequence(rawMsg) else null
                         }
 
-                        val msgTextColor = if (isMine) Color(0xFF3B82F6) else com.example.ui.redesign.RdColors.preview(isDark)
+                        val msgTextColor = com.example.ui.redesign.RdColors.preview(isDark)
 
                         if (previewEmojiSequence != null) {
                             // الإيموجيات في سطر واحد بعرض الصف كامل (زي تيليجرام) — والباقي "…"

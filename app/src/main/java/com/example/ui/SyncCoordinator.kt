@@ -43,6 +43,11 @@ object SyncCoordinator {
     
     private var refreshJob: Job? = null
 
+    /** Rafraîchissement silencieux (retour au premier plan / reconnexion) : met à jour sans écran de chargement. */
+    fun refreshSilently(context: Context) {
+        if (isStarted) debounceRefresh(context)
+    }
+
     /** Trailing debounce: bursts of realtime events produce ONE refresh after they settle. */
     private fun debounceRefresh(context: Context) {
         refreshJob?.cancel()

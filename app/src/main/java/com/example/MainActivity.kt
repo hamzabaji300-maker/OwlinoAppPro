@@ -102,22 +102,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
 
     override fun onStop() {
-
         super.onStop()
-
-        lifecycleScope.launch {
-
-            try {
-
-                supabase.realtime.disconnect()
-
-            } catch (e: Exception) {
-
-
-            }
-
-        }
-
+        // La connexion temps réel reste active en arrière-plan (ConnectionKeeper) : l'app est déjà à jour à l'ouverture.
     }
 
 
@@ -507,25 +493,25 @@ fun HooXApp(intent: android.content.Intent?) {
                 androidx.compose.animation.slideInHorizontally(
                     initialOffsetX = { it },
                     animationSpec = androidx.compose.animation.core.tween(280, easing = com.example.ui.redesign.RdDecelerateEasing(1.5f))
-                ) + androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(140))
+                )
             },
             exitTransition = {
                 androidx.compose.animation.slideOutHorizontally(
                     targetOffsetX = { -it / 3 },
                     animationSpec = androidx.compose.animation.core.tween(280, easing = com.example.ui.redesign.RdDecelerateEasing(1.5f))
-                ) + androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(140))
+                )
             },
             popEnterTransition = {
                 androidx.compose.animation.slideInHorizontally(
                     initialOffsetX = { -it / 3 },
                     animationSpec = androidx.compose.animation.core.tween(280, easing = com.example.ui.redesign.RdDecelerateEasing(1.5f))
-                ) + androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(140))
+                )
             },
             popExitTransition = {
                 androidx.compose.animation.slideOutHorizontally(
                     targetOffsetX = { it },
                     animationSpec = androidx.compose.animation.core.tween(280, easing = com.example.ui.redesign.RdDecelerateEasing(1.5f))
-                ) + androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(140))
+                )
             }
         ) {
             

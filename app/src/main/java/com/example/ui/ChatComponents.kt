@@ -374,6 +374,22 @@ fun MessageBubble(
                     }
                 }
             } else if (audioAtt != null) {
+                val audioCtx = androidx.compose.ui.platform.LocalContext.current
+                val audioFiles by MediaIndex.files.collectAsState()
+                val audioState by AudioPlayerManager.state.collectAsState()
+                val isThis = audioState.messageId == audioAtt.messageId
+                val playing = isThis && audioState.isPlaying
+                val preparing = isThis && audioState.isPreparing
+                LaunchedEffect(playing) {
+                    while (playing) {
+                        AudioPlayerManager.refreshPosition()
+                        kotlinx.coroutines.delay(120)
+                    }
+                }
+                val totalMs = if (isThis && audioState.durationMs > 0) audioState.durationMs.toLong() else (audioAtt.durationMs ?: 0L)
+                val posMs = if (isThis) audioState.positionMs.toLong() else 0L
+                val progress = if (totalMs > 0) (posMs.toFloat() / totalMs).coerceIn(0f, 1f) else 0f
+                fun fmt(ms: Long): String { val s = (ms / 1000).toInt(); return "${s / 60}:${(s % 60).toString().padStart(2, '0')}" }
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).width(200.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -382,21 +398,31 @@ fun MessageBubble(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(if (isMe) Color.White else Color(0xFF007AFF)),
+                            .background(if (isMe) Color.White else Color(0xFF007AFF))
+                            .clickable {
+                                val src = audioFiles[audioAtt.messageId] ?: audioAtt.url
+                                AudioPlayerManager.toggle(audioCtx, audioAtt.messageId, src)
+                            },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.PlayArrow, null, tint = if (isMe) Color(0xFF4FA953) else Color.White, modifier = Modifier.size(24.dp))
+                        if (preparing) {
+                            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = if (isMe) Color(0xFF4FA953) else Color.White)
+                        } else {
+                            Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = if (isMe) Color(0xFF4FA953) else Color.White, modifier = Modifier.size(24.dp))
+                        }
                     }
                     Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Row(modifier = Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             val h = listOf(2, 4, 3, 5, 8, 4, 2, 5, 7, 4, 3, 2, 4, 6)
-                            h.forEach { v ->
-                                Box(modifier = Modifier.weight(1f).height((v*2).dp).clip(CircleShape).background(if (isMe) Color.White.copy(0.6f) else Color(0xFF007AFF).copy(0.4f)))
+                            h.forEachIndexed { i, v ->
+                                val active = (i + 1).toFloat() / h.size <= progress
+                                val base = if (isMe) Color.White else Color(0xFF007AFF)
+                                Box(modifier = Modifier.weight(1f).height((v*2).dp).clip(CircleShape).background(if (active) base else base.copy(if (isMe) 0.6f else 0.4f)))
                             }
                         }
                         Row(modifier = Modifier.fillMaxWidth().padding(top=2.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("0:00", fontSize = 11.sp, color = timeColor)
+                            Text(if (isThis && (playing || posMs > 0)) fmt(posMs) else fmt(totalMs), fontSize = 11.sp, color = timeColor)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(msg.time, fontSize = 10.sp, color = timeColor)
                                 MessageIndicators(
@@ -1029,6 +1055,21 @@ object RichTextActions {
     var onMention: ((String) -> Unit)? = null
     /** إشعار داخل التطبيق (نفس شكل إشعارات النسخ/التثبيت) بدل Toast النظام. */
     var onNotice: ((String) -> Unit)? = null
+    /** Context d'application, utilisé pour ouvrir les liens de façon fiable. */
+    var appContext: android.content.Context? = null
+
+    /** Ouvre un lien http(s) dans le navigateur/app associée, sans jamais planter. */
+    fun openUrl(rawUrl: String) {
+        val ctx = appContext ?: return
+        val url = if (rawUrl.contains("://")) rawUrl else "https://$rawUrl"
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            ctx.startActivity(intent)
+        } catch (e: Exception) {
+            onNotice?.invoke("Impossible d'ouvrir le lien")
+        }
+    }
 }
 
 private val codeRegex = Regex("```([\\s\\S]+?)```|`([^`\\n]+)`")
@@ -1068,7 +1109,7 @@ private fun androidx.compose.ui.text.AnnotatedString.Builder.appendLinkified(seg
             textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
             fontWeight = boldStyle?.fontWeight
         )
-        withLink(LinkAnnotation.Url(url, TextLinkStyles(style = linkStyle, pressedStyle = SpanStyle(background = LinkColor.copy(alpha = 0.22f))))) {
+        withLink(LinkAnnotation.Clickable("url", TextLinkStyles(style = linkStyle, pressedStyle = SpanStyle(background = LinkColor.copy(alpha = 0.22f))), androidx.compose.ui.text.LinkInteractionListener { _ -> RichTextActions.openUrl(url) })) {
             append(url)
         }
         val consumedEnd = m.range.first + url.length
@@ -1206,7 +1247,7 @@ private fun androidx.compose.ui.text.AnnotatedString.Builder.appendLinkifiedWith
             textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
             fontWeight = boldStyle?.fontWeight
         )
-        withLink(LinkAnnotation.Url(url, TextLinkStyles(style = linkStyle, pressedStyle = SpanStyle(background = LinkColor.copy(alpha = 0.22f))))) {
+        withLink(LinkAnnotation.Clickable("url", TextLinkStyles(style = linkStyle, pressedStyle = SpanStyle(background = LinkColor.copy(alpha = 0.22f))), androidx.compose.ui.text.LinkInteractionListener { _ -> RichTextActions.openUrl(url) })) {
             append(url)
         }
         val consumedEnd = m.range.first + url.length
@@ -1288,7 +1329,7 @@ fun LinkPreviewCard(url: String, isMe: Boolean, textColor: Color, modifier: Modi
             .fillMaxWidth()
             .padding(bottom = 6.dp)
             .clip(RoundedCornerShape(10.dp))
-            .clickable { uriHandler.openUri(url) }
+            .clickable { RichTextActions.openUrl(url) }
     ) {
         Row(modifier = Modifier.height(IntrinsicSize.Min)) {
             Box(

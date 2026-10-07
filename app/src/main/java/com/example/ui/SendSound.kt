@@ -7,6 +7,7 @@ import com.example.R
 
 /** Son court joué quand l'utilisateur envoie un message, une photo, un vocal, etc. */
 object SendSound {
+    private const val VOLUME = 0.12f
     private var pool: SoundPool? = null
     private var soundId = 0
     @Volatile private var loaded = false
@@ -25,7 +26,7 @@ object SendSound {
                 loaded = true
                 if (pendingPlay) {
                     pendingPlay = false
-                    p.play(id, 1f, 1f, 1, 0, 1f)
+                    p.play(id, VOLUME, VOLUME, 1, 0, 1f)
                 }
             }
         }
@@ -40,7 +41,7 @@ object SendSound {
     fun play(ctx: Context) {
         try {
             init(ctx)
-            if (loaded) pool?.play(soundId, 1f, 1f, 1, 0, 1f) else pendingPlay = true
+            if (loaded) pool?.play(soundId, VOLUME, VOLUME, 1, 0, 1f) else pendingPlay = true
         } catch (e: Throwable) {}
     }
 }

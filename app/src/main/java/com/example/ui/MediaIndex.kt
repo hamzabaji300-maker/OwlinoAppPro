@@ -44,7 +44,9 @@ object MediaIndex {
         } catch (e: Exception) {
             Log.e("MediaIndex", "scan failed", e)
         }
-        _files.value = map
+        // نحافظ على الإدخالات الموجودة (مثلاً ملف تم تنزيله للتو) إذا كان الملف لا يزال موجوداً
+        val kept = _files.value.filterValues { path -> try { File(path).exists() } catch (e: Exception) { false } }
+        _files.value = kept + map
         _ready.value = true
     }
 }

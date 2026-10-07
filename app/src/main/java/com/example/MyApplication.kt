@@ -25,6 +25,15 @@ class MyApplication : Application(), ImageLoaderFactory {
         try { com.example.ui.CrashCatcher.setup(this) } catch (e: Throwable) {}
         try { NotificationHelper.ensureOwlinoChannel(this) } catch (e: Throwable) {}
         try { com.example.ui.SendSound.preload(this) } catch (e: Throwable) {}
+        try { com.example.ui.RichTextActions.appContext = applicationContext } catch (e: Throwable) {}
+        try { ConnectionKeeper.start(this) } catch (e: Throwable) {}
+        // Cache des messages chargé en arrière-plan : l'ouverture d'une conversation devient instantanée
+        try {
+            Thread { com.example.ui.MessageListCache.warmUp(applicationContext) }.apply {
+                priority = Thread.MIN_PRIORITY
+                start()
+            }
+        } catch (e: Throwable) {}
 
         try {
             app.rive.runtime.kotlin.core.Rive.init(this)

@@ -326,10 +326,23 @@ cachedChatDao.insertCachedChats(listOf(existingCachedChat.copy(unread_count = 0)
         ) 
     }
     androidx.compose.runtime.LaunchedEffect(messages) {
-        if (messages.isNotEmpty()) {
-            MessageListCache.saveMessages(context, chatId, messages)
-        }
+        // Mémoire à jour immédiatement ; écriture disque regroupée et hors du thread principal (anti-saccade)
         com.example.AppState.chatMessagesCache[chatId] = messages
+        if (messages.isNotEmpty()) {
+            kotlinx.coroutines.delay(300)
+            withContext(Dispatchers.Default) { MessageListCache.saveMessages(context, chatId, messages) }
+        }
+    }
+    val latestMessagesForSave = androidx.compose.runtime.rememberUpdatedState(messages)
+    androidx.compose.runtime.DisposableEffect(chatId) {
+        onDispose {
+            val last = latestMessagesForSave.value
+            if (last.isNotEmpty()) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    MessageListCache.saveMessages(context, chatId, last)
+                }
+            }
+        }
     }
 
     // تشخيص مؤقت: نراقب كل تحديث للرسائل، وإذا لقينا رسالة isMine ما يطابقش
@@ -1475,8 +1488,18 @@ else it
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var wasKeyboardOpen by remember { mutableStateOf(false) }
-    val isImeVisible = WindowInsets.isImeVisible
-    LaunchedEffect(isImeVisible) { if (isImeVisible) { showReplyKb = false; showBotMenu = false } }
+    // Visibilité du clavier lue HORS composition : la lire directement recomposait tout l'écran de conversation
+    // au moment précis où le clavier apparaît (saccade). On garde un état lu seulement dans les callbacks.
+    val imeVisibleState = remember { mutableStateOf(false) }
+    val imeDensity = androidx.compose.ui.platform.LocalDensity.current
+    // Arrêt du lecteur audio quand on quitte la conversation (sinon le vocal continue en arrière-plan)
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { AudioPlayerManager.release() } }
+    LaunchedEffect(Unit) {
+        snapshotFlow { WindowInsets.ime.getBottom(imeDensity) > 0 }.collect { visible ->
+            imeVisibleState.value = visible
+            if (visible) { showReplyKb = false; showBotMenu = false }
+        }
+    }
 
 MaterialTheme(colorScheme = colorScheme) {
 Box(modifier = Modifier.fillMaxSize()) {
@@ -1589,8 +1612,8 @@ else selectedMessages + msgId
           onMoreClick = { },
           onLongClick = { msg, bounds, showFull ->
              if (!isSelectionMode) {
-                 wasKeyboardOpen = isImeVisible
-                 if (isImeVisible) {
+                 wasKeyboardOpen = imeVisibleState.value
+                 if (imeVisibleState.value) {
                      keyboardController?.hide()
                  }
                  selectedMessageForContext = msg
@@ -4213,13 +4236,15 @@ fun MessageInputBar(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-    val imeBottomPx = WindowInsets.ime.getBottom(density)
     val imeVisible = WindowInsets.isImeVisible
-    LaunchedEffect(imeBottomPx, imeVisible) {
-        if (imeVisible && imeBottomPx > 0) {
-            val heightDp = with(density) { imeBottomPx.toDp() }
-            if (heightDp > minPanelHeight) capturedKeyboardHeight = heightDp
-        }
+    LaunchedEffect(Unit) {
+        snapshotFlow { WindowInsets.ime.getBottom(density) }
+            .collect { imeBottomPx ->
+                if (imeBottomPx > 0) {
+                    val heightDp = with(density) { imeBottomPx.toDp() }
+                    if (heightDp > minPanelHeight) capturedKeyboardHeight = heightDp
+                }
+            }
     }
     val panelHeight = if (capturedKeyboardHeight > minPanelHeight) capturedKeyboardHeight else minPanelHeight
 
