@@ -1494,8 +1494,9 @@ else it
     val imeDensity = androidx.compose.ui.platform.LocalDensity.current
     // Arrêt du lecteur audio quand on quitte la conversation (sinon le vocal continue en arrière-plan)
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { AudioPlayerManager.release() } }
+    val imeInsetsForKb = WindowInsets.ime
     LaunchedEffect(Unit) {
-        snapshotFlow { WindowInsets.ime.getBottom(imeDensity) > 0 }.collect { visible ->
+        snapshotFlow { imeInsetsForKb.getBottom(imeDensity) > 0 }.collect { visible ->
             imeVisibleState.value = visible
             if (visible) { showReplyKb = false; showBotMenu = false }
         }
@@ -4237,8 +4238,9 @@ fun MessageInputBar(
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val imeVisible = WindowInsets.isImeVisible
+    val imeInsetsForPanel = WindowInsets.ime
     LaunchedEffect(Unit) {
-        snapshotFlow { WindowInsets.ime.getBottom(density) }
+        snapshotFlow { imeInsetsForPanel.getBottom(density) }
             .collect { imeBottomPx ->
                 if (imeBottomPx > 0) {
                     val heightDp = with(density) { imeBottomPx.toDp() }
