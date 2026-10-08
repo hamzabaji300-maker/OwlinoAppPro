@@ -23,7 +23,7 @@ object UploadLimits {
 
     fun limitMessage(type: AttachmentType, plan: Plan = Plan.FREE): String? = when (type) {
         AttachmentType.VIDEO -> "عذراً، حجم الفيديو يتجاوز الحد المسموح (50 ميغابايت)."
-        AttachmentType.DOCUMENT -> "عذراً، حجم الملف يتجاوز الحد المسموح (25 ميغابايت)."
+        AttachmentType.DOCUMENT -> "عذراً، حجم الملف يتجاوز الحد المسموح (25 ميغابايت). لإرسال فيديو استخدم تبويب «الفيديو» (حتى 50 ميغابايت)."
         AttachmentType.AUDIO, AttachmentType.VOICE -> "عذراً، حجم المقطع الصوتي يتجاوز الحد المسموح (10 ميغابايت)."
         AttachmentType.IMAGE -> "عذراً، حجم الصورة كبير جداً."
     }
@@ -37,3 +37,6 @@ object UploadLimits {
 
 /** استثناء يحمل رسالة عربية جاهزة للعرض للمستخدم. */
 class UploadLimitException(message: String) : Exception(message)
+
+/** الملف المحلي لم يعد موجودًا أو لا يمكن قراءته (لا فائدة من إعادة المحاولة). */
+class LocalMediaException(message: String) : Exception(message)

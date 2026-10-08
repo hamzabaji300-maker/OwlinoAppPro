@@ -8,7 +8,9 @@ import androidx.work.WorkerParameters
 import com.example.cache.AppDatabase
 import com.example.supabase
 import com.example.ui.AttachmentType
+import com.example.util.LocalMediaException
 import com.example.util.MediaUploader
+import com.example.util.NetworkUtils
 import com.example.util.UploadLimitException
 import com.example.ui.MessageInsert
 import com.example.ui.MessageRow
@@ -73,9 +75,8 @@ class PendingMessageWorker(
                         } catch (e: UploadLimitException) {
                             messageDao.updateMessageStatus(msg.id, "FAILED")
                             continue
-                        } catch (e: java.io.IOException) {
+                        } catch (e: LocalMediaException) {
                             // الملف المحلي لم يعد موجودًا: لا فائدة من إعادة المحاولة
-                            if (isNetworkError(e)) throw e
                             messageDao.updateMessageStatus(msg.id, "FAILED")
                             continue
                         }
@@ -114,7 +115,7 @@ class PendingMessageWorker(
                     )
                     
                 } catch (e: Exception) {
-                    if (isNetworkError(e)) {
+                    if (NetworkUtils.isNetworkError(context, e)) {
                         needsRetry = true
                     } else {
                         messageDao.updateMessageStatus(msg.id, "FAILED")
@@ -123,20 +124,18 @@ class PendingMessageWorker(
             }
 
             if (needsRetry) {
-                Result.retry()
+                // حد أقصى للمحاولات حتى لا يبقى العامل يحاول للأبد
+                if (runAttemptCount >= 12) {
+                    pendingMessages.forEach { messageDao.updateMessageStatus(it.id, "FAILED") }
+                    Result.failure()
+                } else {
+                    Result.retry()
+                }
             } else {
                 Result.success()
             }
         } catch (e: Exception) {
-            if (isNetworkError(e)) Result.retry() else Result.failure()
+            if (NetworkUtils.isNetworkError(context, e)) Result.retry() else Result.failure()
         }
-    }
-
-    private fun isNetworkError(e: Exception): Boolean {
-        val msg = e.message?.lowercase() ?: ""
-        return e is java.net.UnknownHostException || 
-               e is java.net.ConnectException || 
-               e is java.net.SocketTimeoutException ||
-               "timeout" in msg || "network" in msg || "connection" in msg
     }
 }

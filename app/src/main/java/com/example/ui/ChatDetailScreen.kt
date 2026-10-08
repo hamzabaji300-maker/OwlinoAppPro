@@ -1899,13 +1899,34 @@ theirLastSeenRule, amIBlocked, haveIBlocked)
                   onClick = {
                      if (pinnedMessages.isNotEmpty()) {
                          val targetMsg = pinnedMessages[currentPinIndex % pinnedMessages.size]
-                         val index = messages.indexOfFirst { it.id == targetMsg.id }
-                         if (index >= 0) {
-                             coroutineScope.launch {
-                                listState.animateScrollToItem(index)
-                                highlightedMessageId = targetMsg.id
-                                kotlinx.coroutines.delay(1500)
-                                if (highlightedMessageId == targetMsg.id) highlightedMessageId = null
+                         coroutineScope.launch {
+                             // القائمة المعروضة هي processedMessages (مجمّعة ومحدودة بـ displayLimit)،
+                             // وليست قائمة messages الكاملة. لذلك نبحث فيها هي حتى يكون الموضع صحيحًا،
+                             // ونتعامل مع الرسالة داخل ألبوم صور (يُعرض كعنصر واحد).
+                             fun findIndex(): Int = processedMessages.indexOfFirst { uiMsg ->
+                                 uiMsg.msg.id == targetMsg.id || uiMsg.msg.attachments.any { it.messageId == targetMsg.id }
+                             }
+                             var index = findIndex()
+                             if (index < 0) {
+                                 // الرسالة أقدم من النافذة المعروضة: نوسّعها لتشملها
+                                 val rawIndex = messages.indexOfFirst { it.id == targetMsg.id }
+                                 if (rawIndex >= 0) {
+                                     val needed = messages.size - rawIndex
+                                     if (needed + 5 > displayLimit) displayLimit = needed + 5
+                                     var tries = 0
+                                     while (index < 0 && tries < 40) {
+                                         kotlinx.coroutines.delay(50)
+                                         index = findIndex()
+                                         tries++
+                                     }
+                                 }
+                             }
+                             if (index >= 0) {
+                                 listState.animateScrollToItem(index)
+                                 val shownId = processedMessages.getOrNull(index)?.msg?.id ?: targetMsg.id
+                                 highlightedMessageId = shownId
+                                 kotlinx.coroutines.delay(1500)
+                                 if (highlightedMessageId == shownId) highlightedMessageId = null
                              }
                          }
                          if (pinnedMessages.size > 1) {
@@ -2244,8 +2265,7 @@ MessageStatus.SENT, time = timeStr) else it
                            }
                         } catch(e: Exception) {
                            e.printStackTrace()
-                           val msgTxt = e.message?.lowercase() ?: ""
-                           val isNetworkError = e is java.net.UnknownHostException || e is java.net.ConnectException || e is java.net.SocketTimeoutException || "timeout" in msgTxt || "network" in msgTxt || "connection" in msgTxt || "unable to resolve host" in msgTxt || "failed to connect" in msgTxt
+                           val isNetworkError = com.example.util.NetworkUtils.isNetworkError(context, e)
                            
                            if (isNetworkError) {
                                val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.example.worker.PendingMessageWorker>()
@@ -2521,24 +2541,16 @@ MessageStatus.SENT, time = timeStr) else it
                                 }
                             } catch(e: Exception) {
                                 e.printStackTrace()
-                                val msgTxt = e.message?.lowercase() ?: ""
-                                val isNetworkError = e !is com.example.util.UploadLimitException && (e is java.net.UnknownHostException || e is java.net.ConnectException || e is java.net.SocketTimeoutException || "timeout" in msgTxt || "network" in msgTxt || "connection" in msgTxt || "unable to resolve host" in msgTxt || "failed to connect" in msgTxt)
+                                val isNetworkError = com.example.util.NetworkUtils.isNetworkError(context, e)
                                 
                                 if (isNetworkError) {
                                     val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.example.worker.PendingMessageWorker>()
                                         .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
                                         .build()
                                     androidx.work.WorkManager.getInstance(context).enqueueUniqueWork("PendingMessageUpload", androidx.work.ExistingWorkPolicy.APPEND_OR_REPLACE, workRequest)
-                                    // نحدث الواجهة كمان حتى في حالة خطأ الشبكة، باش الصورة ما تبقاش
-                                    // تدور بلا نهاية بصح تبين حالة "فشل/إعادة المحاولة" واضحة للمستخدم
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        messages = messages.map {
-                                            if (it.id == tempMsg.id) it.copy(status = MessageStatus.FAILED) else it
-                                        }
-                                    }
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                        try { cachedMessageDao.updateMessageStatus(tempMsg.id, "FAILED") } catch(ex: Exception) {}
-                                    }
+                                    // مهم: لا نضع الحالة "فشل" هنا. الرسالة تبقى "قيد الإرسال" (SENDING)
+                                    // لأن عامل الإرسال المؤجّل يعيد فقط الرسائل بهذه الحالة، وسيرسلها
+                                    // تلقائيًا فور عودة الإنترنت.
                                 } else {
                                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                         messages = messages.map {

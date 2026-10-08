@@ -53,12 +53,18 @@ object MediaUploader {
             val size = getFileSize(context, uri)
             UploadLimits.check(type, size)?.let { throw UploadLimitException(it) }
 
-            if (type == AttachmentType.IMAGE) {
-                compressImage(context, uri, size)
-            } else {
-                // مرة واحدة فقط وبعد التأكد من الحد (أقصى 50 ميغابايت)
-                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: throw java.io.IOException("تعذّر قراءة الملف")
+            try {
+                if (type == AttachmentType.IMAGE) {
+                    compressImage(context, uri, size)
+                } else {
+                    // مرة واحدة فقط وبعد التأكد من الحد (أقصى 50 ميغابايت)
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: throw LocalMediaException("تعذّر قراءة الملف")
+                }
+            } catch (e: java.io.FileNotFoundException) {
+                throw LocalMediaException("الملف لم يعد متاحًا على الهاتف")
+            } catch (e: SecurityException) {
+                throw LocalMediaException("لا توجد صلاحية لقراءة الملف")
             }
         }
 
@@ -137,7 +143,7 @@ object MediaUploader {
 
     private fun readAll(context: Context, uri: Uri): ByteArray =
         context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            ?: throw java.io.IOException("تعذّر قراءة الصورة")
+            ?: throw LocalMediaException("تعذّر قراءة الصورة")
 
     private fun isGif(context: Context, uri: Uri): Boolean {
         return try {

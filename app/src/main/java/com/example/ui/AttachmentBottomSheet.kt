@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -43,7 +45,7 @@ import kotlinx.coroutines.withContext
 
 data class MediaItem(val id: Long, val uri: Uri, val type: Int, val bucketName: String)
 data class RecentFileItem(val id: Long, val uri: Uri, val name: String, val size: Long)
-enum class AttachmentPickerTab { PHOTOS, FILES }
+enum class AttachmentPickerTab { PHOTOS, VIDEOS, FILES }
 
 // Remembers the real display name/size for a file the user just picked from the Files
 // tab, keyed by its Uri string. The Uri alone (especially a plain file:// path found via
@@ -319,6 +321,7 @@ fun AttachmentPickerPanel(
     var selectedAlbum by remember { mutableStateOf<String?>(null) }
     val selectedUris = remember { mutableStateListOf<Uri>() }
     var hasMediaPermission by remember { mutableStateOf(false) }
+    var mediaLoaded by remember { mutableStateOf(false) }
 
     var currentDir by remember { mutableStateOf<java.io.File?>(null) }
     var dirEntries by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
@@ -359,9 +362,15 @@ fun AttachmentPickerPanel(
             "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
         } else null
 
-        val hasFull = androidx.core.content.ContextCompat.checkSelfPermission(
+        val hasImages = androidx.core.content.ContextCompat.checkSelfPermission(
             context, mediaPermission
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        // من أندرويد 13 صلاحية الفيديو منفصلة عن الصور
+        val hasVideos = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_MEDIA_VIDEO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val hasFull = hasImages && hasVideos
         val hasPartial = partialAccessPermission != null &&
             androidx.core.content.ContextCompat.checkSelfPermission(
                 context, partialAccessPermission
@@ -370,7 +379,10 @@ fun AttachmentPickerPanel(
         if (hasFull || hasPartial) {
             hasMediaPermission = true
         } else {
-            val toRequest = listOfNotNull(mediaPermission, partialAccessPermission)
+            val videoPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.READ_MEDIA_VIDEO
+            } else null
+            val toRequest = listOfNotNull(mediaPermission, videoPermission, partialAccessPermission)
             mediaPermissionLauncher.launch(toRequest.toTypedArray())
         }
     }
@@ -378,6 +390,7 @@ fun AttachmentPickerPanel(
     LaunchedEffect(hasMediaPermission) {
         if (hasMediaPermission) {
             mediaItems = loadRecentMedia(context)
+            mediaLoaded = true
         }
     }
 
@@ -467,7 +480,22 @@ fun AttachmentPickerPanel(
                 label = "الصور",
                 selected = selectedTab == AttachmentPickerTab.PHOTOS,
                 modifier = Modifier.weight(1f),
-                onClick = { selectedTab = AttachmentPickerTab.PHOTOS }
+                onClick = {
+                    selectedTab = AttachmentPickerTab.PHOTOS
+                    selectedAlbum = null
+                    selectedUris.clear()
+                }
+            )
+            PickerTabButton(
+                icon = Icons.Outlined.Videocam,
+                label = "الفيديو",
+                selected = selectedTab == AttachmentPickerTab.VIDEOS,
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    selectedTab = AttachmentPickerTab.VIDEOS
+                    selectedAlbum = null
+                    selectedUris.clear()
+                }
             )
             PickerTabButton(
                 icon = Icons.Outlined.Description,
@@ -481,28 +509,40 @@ fun AttachmentPickerPanel(
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (selectedTab) {
-                AttachmentPickerTab.PHOTOS -> {
-                    if (mediaItems.isEmpty()) {
+                AttachmentPickerTab.PHOTOS, AttachmentPickerTab.VIDEOS -> {
+                    val wantVideo = selectedTab == AttachmentPickerTab.VIDEOS
+                    val tabItems = remember(mediaItems, wantVideo) {
+                        mediaItems.filter {
+                            (it.type == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) == wantVideo
+                        }
+                    }
+                    if (tabItems.isEmpty()) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            if (hasMediaPermission) {
+                            if (hasMediaPermission && !mediaLoaded) {
                                 CircularProgressIndicator()
+                            } else if (hasMediaPermission) {
+                                Text(
+                                    if (wantVideo) "لا توجد فيديوهات على الهاتف" else "لا توجد صور على الهاتف",
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(24.dp)
+                                )
                             } else {
                                 Text(
-                                    "يحتاج التطبيق إلى إذن للوصول إلى الصور",
+                                    "يحتاج التطبيق إلى إذن للوصول إلى الصور والفيديو",
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier.padding(24.dp)
                                 )
                             }
                         }
                     } else {
-                        val albums = remember(mediaItems) {
-                            mediaItems.groupBy { it.bucketName }
+                        val albums = remember(tabItems) {
+                            tabItems.groupBy { it.bucketName }
                                 .toList()
                                 .sortedByDescending { (_, items) -> items.maxOf { it.id } }
                         }
                         val album = selectedAlbum
                         val itemsToShow = if (album != null) {
-                            mediaItems.filter { it.bucketName == album }
+                            tabItems.filter { it.bucketName == album }
                         } else emptyList()
 
                         Column(Modifier.fillMaxSize()) {
@@ -543,10 +583,8 @@ fun AttachmentPickerPanel(
                                                         .aspectRatio(1f)
                                                         .clip(RoundedCornerShape(10.dp))
                                                 ) {
-                                                    AsyncImage(
-                                                        model = bucketItems.first().uri,
-                                                        contentDescription = null,
-                                                        contentScale = ContentScale.Crop,
+                                                    MediaThumb(
+                                                        item = bucketItems.first(),
                                                         modifier = Modifier.fillMaxSize()
                                                     )
                                                 }
@@ -581,12 +619,23 @@ fun AttachmentPickerPanel(
                                                         else selectedUris.add(item.uri)
                                                     }
                                             ) {
-                                                AsyncImage(
-                                                    model = item.uri,
-                                                    contentDescription = null,
-                                                    contentScale = ContentScale.Crop,
+                                                MediaThumb(
+                                                    item = item,
                                                     modifier = Modifier.fillMaxSize()
                                                 )
+                                                if (item.type == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.PlayArrow,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier
+                                                            .padding(6.dp)
+                                                            .size(22.dp)
+                                                            .align(Alignment.BottomStart)
+                                                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                                            .padding(2.dp)
+                                                    )
+                                                }
                                                 if (isSelected) {
                                                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)))
                                                     Icon(
@@ -618,7 +667,10 @@ fun AttachmentPickerPanel(
                                 if (selectedUris.isNotEmpty()) {
                                     FloatingActionButton(
                                         onClick = {
-                                            onAttachmentSelected(selectedUris.toList(), AttachmentType.IMAGE)
+                                            onAttachmentSelected(
+                                                selectedUris.toList(),
+                                                if (wantVideo) AttachmentType.VIDEO else AttachmentType.IMAGE
+                                            )
                                             selectedUris.clear()
                                         },
                                         modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
@@ -883,7 +935,13 @@ private suspend fun loadRecentMedia(context: android.content.Context): List<Medi
                     val id = cursor.getLong(idColumn)
                     val type = cursor.getInt(typeColumn)
                     val bucket = if (bucketColumn >= 0) cursor.getString(bucketColumn) else null
-                    items.add(MediaItem(id, ContentUris.withAppendedId(queryUri, id), type, bucket ?: "أخرى"))
+                    // الفيديو من مجموعة الفيديو الرسمية حتى تعمل المصغّرة بشكل صحيح
+                    val itemUri = if (type == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
+                        ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+                    } else {
+                        ContentUris.withAppendedId(queryUri, id)
+                    }
+                    items.add(MediaItem(id, itemUri, type, bucket ?: "أخرى"))
                     count++
                 }
             }
@@ -1017,3 +1075,45 @@ private suspend fun loadRecentFiles(context: android.content.Context): List<Rece
             .sortedByDescending { it.id }
             .take(60)
     }
+
+
+// مصغّرة لعنصر في المعرض: صورة عادية أو لقطة من الفيديو (Coil لا يفك الفيديو وحده)
+@Composable
+private fun MediaThumb(item: MediaItem, modifier: Modifier = Modifier) {
+    if (item.type != MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
+        AsyncImage(
+            model = item.uri,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+        )
+        return
+    }
+    val context = LocalContext.current
+    val thumb by produceState<android.graphics.Bitmap?>(initialValue = null, item.uri) {
+        value = withContext(Dispatchers.IO) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    context.contentResolver.loadThumbnail(item.uri, android.util.Size(320, 320), null)
+                } else {
+                    @Suppress("DEPRECATION")
+                    MediaStore.Video.Thumbnails.getThumbnail(
+                        context.contentResolver, item.id, MediaStore.Video.Thumbnails.MINI_KIND, null
+                    )
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+    Box(modifier = modifier.background(Color(0xFF222222))) {
+        thumb?.let {
+            androidx.compose.foundation.Image(
+                bitmap = it.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}

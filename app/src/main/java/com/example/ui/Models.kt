@@ -188,10 +188,6 @@ data class ChatModel(
         get() = if (id == OFFICIAL_CHANNEL_ID) VerifyType.RED else VerifyType.from(verifiedType, isVerified)
 }
 
-/** نفس منطق ChatModel.effectiveVerifyType لكن لكيان Room (ChatEntity) المستخدم في شاشة المحادثة. */
-val com.example.data.ChatEntity.effectiveVerifyType: VerifyType
-    get() = if (id == OFFICIAL_CHANNEL_ID) VerifyType.RED else VerifyType.from(verifiedType, isVerified)
-
 fun formatRelativeTime(timestamp: String?): String {
     if (timestamp.isNullOrEmpty()) return "آخر ظهور غير معروف"
     return try {

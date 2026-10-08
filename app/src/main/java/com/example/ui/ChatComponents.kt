@@ -1426,13 +1426,14 @@ fun FileBubbleContent(
                     isRemoteDoc -> com.example.util.MediaStorage.openRemote(fileCtx, att.url, att.mimeType ?: "*/*")
                 }
             }
-            .padding(horizontal = 10.dp, vertical = 8.dp)
-            .widthIn(min = 210.dp)
+            // عرض ثابت صغير مثل فقاعة الرسالة الصوتية (200dp)، بدل أن تتمدد على كل الشاشة
+            .width(if (caption.isBlank()) 220.dp else 260.dp)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(if (isMe) Color.White else Color(0xFF3390EC)),
                 contentAlignment = Alignment.Center
@@ -1482,15 +1483,15 @@ fun FileBubbleContent(
                 Text(
                     text = fileName,
                     color = textColor,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 when {
-                    isUploading -> Text(text = "جاري الرفع...", color = timeColor, fontSize = 12.sp)
-                    isFailed -> Text(text = "فشل الإرسال", color = Color(0xFFE53935), fontSize = 12.sp)
-                    subtitle.isNotBlank() -> Text(text = subtitle, color = timeColor, fontSize = 12.sp)
+                    isUploading -> Text(text = "جاري الرفع...", color = timeColor, fontSize = 11.sp)
+                    isFailed -> Text(text = "فشل الإرسال", color = Color(0xFFE53935), fontSize = 11.sp)
+                    subtitle.isNotBlank() -> Text(text = subtitle, color = timeColor, fontSize = 11.sp)
                 }
             }
         }
@@ -1506,10 +1507,10 @@ fun FileBubbleContent(
             )
         }
         Row(
-            modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
+            modifier = Modifier.align(Alignment.End),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
+            Text(msg.time, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = timeColor)
             MessageIndicators(
                 isMe = isMe,
                 status = msg.status,
