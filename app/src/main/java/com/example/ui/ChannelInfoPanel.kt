@@ -86,6 +86,7 @@ fun ChannelInfoPanel(
     avatarUrl: String? = null,
     isVerified: Boolean = false,
     verifiedTint: Color = Color(0xFF3B82F6),
+    verifyType: VerifyType = VerifyType.NONE,
     subscribersLabel: String? = null,
     description: String? = null,
     isPublic: Boolean = true,
@@ -229,7 +230,18 @@ fun ChannelInfoPanel(
                                 )
                             }
                         }
-                        if (isVerified) {
+                        if (verifyType != VerifyType.NONE) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(12.dp)
+                                    .size(24.dp)
+                                    .background(SettingsColors.background, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                VerifiedBadge(type = verifyType, iconSize = 20.dp, yOffset = 0.dp)
+                            }
+                        } else if (isVerified) {
                             Icon(
                                 imageVector = Icons.Filled.Verified,
                                 contentDescription = "Vérifié",

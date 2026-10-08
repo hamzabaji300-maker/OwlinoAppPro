@@ -36,7 +36,7 @@ object ThumbnailUtils {
             } ?: return null
 
             val scale = MAX_DIMENSION.toFloat() / maxOf(sampledBitmap.width, sampledBitmap.height)
-            val finalBitmap = if (scale < 1f) {
+            val scaledBitmap = if (scale < 1f) {
                 Bitmap.createScaledBitmap(
                     sampledBitmap,
                     (sampledBitmap.width * scale).toInt().coerceAtLeast(1),
@@ -44,6 +44,12 @@ object ThumbnailUtils {
                     true
                 )
             } else sampledBitmap
+
+            // نحترم اتجاه EXIF حتى لا تظهر المصغّرة جانبية
+            val finalBitmap = MediaUploader.applyOrientation(
+                scaledBitmap,
+                MediaUploader.readOrientation(context, uri)
+            )
 
             val outputStream = ByteArrayOutputStream()
             finalBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, outputStream)

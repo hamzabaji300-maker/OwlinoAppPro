@@ -443,7 +443,10 @@ class BackgroundSyncWorker(
                         timestamp = timestamp,
                         unreadCount = existingChat?.unreadCount ?: 0,
                         isBot = existingChat?.isBot ?: false,
-                        isVerified = existingChat?.isVerified ?: (rc.id == com.example.ui.OFFICIAL_CHANNEL_ID),
+                        isVerified = if (rc.id == com.example.ui.OFFICIAL_CHANNEL_ID) true
+                            else (otherProfile?.verifyType?.isVerified ?: existingChat?.isVerified ?: false),
+                        verifiedType = if (rc.id == com.example.ui.OFFICIAL_CHANNEL_ID) com.example.ui.VerifyType.RED.raw
+                            else (otherProfile?.verifyType?.raw ?: existingChat?.verifiedType ?: "none"),
                         hasStar = existingChat?.hasStar ?: false,
                         isMuted = existingChat?.isMuted ?: false,
                         isFavorite = existingChat?.isFavorite ?: false,

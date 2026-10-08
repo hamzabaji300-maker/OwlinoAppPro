@@ -76,4 +76,20 @@ object LocalFileManager {
             return null
         }
     }
+
+    /** ينسخ ملفًا (content:// أو file://) إلى مجلد التطبيق بالتدفق، دون تحميله كله في الذاكرة. */
+    fun saveFromUri(context: Context, uri: android.net.Uri, fileName: String): File? {
+        return try {
+            val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: return null
+            val mediaDir = File(dir, FOLDER_NAME)
+            if (!mediaDir.exists()) mediaDir.mkdirs()
+            val file = File(mediaDir, fileName)
+            val input = context.contentResolver.openInputStream(uri) ?: return null
+            input.use { src -> file.outputStream().use { dst -> src.copyTo(dst) } }
+            file
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
 }

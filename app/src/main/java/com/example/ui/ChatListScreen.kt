@@ -691,7 +691,8 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
                         timestamp = timestamp,
                         unreadCount = finalUnreadCount,
                         isBot = existingChat?.isBot ?: false,
-                        isVerified = otherProfile?.isVerified == true || rc.id == OFFICIAL_CHANNEL_ID,
+                        isVerified = otherProfile?.verifyType?.isVerified == true || rc.id == OFFICIAL_CHANNEL_ID,
+                        verifiedType = if (rc.id == OFFICIAL_CHANNEL_ID) VerifyType.RED.raw else (otherProfile?.verifyType ?: VerifyType.NONE).raw,
                         hasStar = if (pinnedSet != null) rc.id in pinnedSet else existingChat?.hasStar ?: false,
                         isMuted = if (mutedSet != null) rc.id in mutedSet else existingChat?.isMuted ?: false,
                         isFavorite = if (favSet != null) rc.id in favSet else existingChat?.isFavorite ?: false,
@@ -834,7 +835,8 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
                                         timestamp = timestamp,
                                         unreadCount = unreadCount,
                                         isBot = false,
-                                        isVerified = otherProfile?.isVerified == true || chatRow.id == OFFICIAL_CHANNEL_ID,
+                                        isVerified = otherProfile?.verifyType?.isVerified == true || chatRow.id == OFFICIAL_CHANNEL_ID,
+                                        verifiedType = if (chatRow.id == OFFICIAL_CHANNEL_ID) VerifyType.RED.raw else (otherProfile?.verifyType ?: VerifyType.NONE).raw,
                                         hasStar = false,
                                         isMuted = false,
                                         isChannel = chatRow.type == "channel",
@@ -1895,7 +1897,7 @@ fun ChatList(
                         isBot = chat.isBot,
                         isChannel = chat.isChannel,
                         isVerified = chat.isVerified,
-                        verifiedTint = if (chat.id == FAKE_CHANNEL_ID) Color(0xFFEF4444) else Color(0xFF3B82F6),
+                        verifyType = chat.effectiveVerifyType,
                         isBlocked = chat.isBlocked,
                         hasSparkleBadge = chat.hasSparkleBadge,
                         isReadReceipt = chat.isReadReceipt,
@@ -1962,6 +1964,7 @@ fun ChatItem(
     isChannel: Boolean,
     isVerified: Boolean = false,
     verifiedTint: Color = Color(0xFF3B82F6),
+    verifyType: VerifyType = VerifyType.NONE,
     isBlocked: Boolean = false,
     hasSparkleBadge: Boolean = false,
     isReadReceipt: Boolean = false,
@@ -2134,7 +2137,9 @@ fun ChatItem(
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = androidx.compose.ui.Modifier.weight(1f, fill = false)
                     )
-                    if (isVerified) {
+                    if (verifyType != VerifyType.NONE) {
+                        com.example.ui.VerifiedBadge(type = verifyType, modifier = Modifier.padding(start = 6.dp), iconSize = 16.dp)
+                    } else if (isVerified) {
                         com.example.ui.VerifiedBadge(isVerified = true, modifier = Modifier.padding(start = 6.dp), iconSize = 16.dp, tint = verifiedTint)
                     }
                     if (debugShowEvent) {

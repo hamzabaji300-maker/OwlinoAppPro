@@ -35,6 +35,7 @@ data class ChatEntity(
     val isChannel: Boolean = false,
     val isGroup: Boolean = false,
     val isVerified: Boolean = false,
+    val verifiedType: String = "none", // none | blue | red
     val hasSparkleBadge: Boolean = false,
     val isReadReceipt: Boolean = false,
     val isMine: Boolean = false,
@@ -73,6 +74,7 @@ fun ChatEntity.toModel(): com.example.ui.ChatModel {
         isChannel = isChannel,
         isGroup = isGroup,
         isVerified = isVerified,
+        verifiedType = verifiedType,
         hasSparkleBadge = hasSparkleBadge,
         isReadReceipt = isReadReceipt,
         isMine = isMine,
@@ -106,6 +108,7 @@ fun com.example.ui.ChatModel.toEntity(): ChatEntity {
         isChannel = isChannel,
         isGroup = isGroup,
         isVerified = isVerified,
+        verifiedType = verifiedType,
         hasSparkleBadge = hasSparkleBadge,
         isReadReceipt = isReadReceipt,
         isMine = isMine,
@@ -199,7 +202,7 @@ interface ProfileDao {
     suspend fun insertProfile(profile: ProfileEntity)
 }
 
-@Database(entities = [ChatEntity::class, ProfileEntity::class], version = 9, exportSchema = false)
+@Database(entities = [ChatEntity::class, ProfileEntity::class], version = 10, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
     abstract fun profileDao(): ProfileDao
@@ -209,13 +212,24 @@ object DatabaseProvider {
     @Volatile
     private var INSTANCE: AppDatabase? = null
 
+    // 9 -> 10: نوع التوثيق (أزرق/أحمر). نضيف العمود بدل مسح الجدول حتى لا تضيع المسودات والمفضلة المحلية.
+    private val MIGRATION_9_10 = object : androidx.room.migration.Migration(9, 10) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE chats ADD COLUMN verifiedType TEXT NOT NULL DEFAULT 'none'")
+            // المحادثات الموثّقة سابقًا (الأزرق) نحافظ عليها
+            db.execSQL("UPDATE chats SET verifiedType = 'blue' WHERE isVerified = 1")
+        }
+    }
+
     fun getDatabase(context: Context): AppDatabase {
         return INSTANCE ?: synchronized(this) {
             val instance = Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "app_database"
-            ).fallbackToDestructiveMigration().build()
+            ).addMigrations(MIGRATION_9_10)
+                .fallbackToDestructiveMigration()
+                .build()
             INSTANCE = instance
             instance
         }

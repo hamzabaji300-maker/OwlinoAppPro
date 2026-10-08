@@ -73,6 +73,7 @@ fun UserProfileScreen(
     var location by remember { mutableStateOf("Algeria") }
     var avatarUrl by remember { mutableStateOf<String?>(null) }
     var isVerified by remember { mutableStateOf(false) }
+    var verifyType by remember { mutableStateOf(VerifyType.NONE) }
     var isLoading by remember { mutableStateOf(true) }
     var existingChatId by remember { mutableStateOf<String?>(null) }
 
@@ -133,7 +134,8 @@ fun UserProfileScreen(
                         bio = profile.bio!!.replace(Regex("\\n{2,}"), "\n").trim()
                     }
                     avatarUrl = profile.avatarUrl
-                    isVerified = profile.isVerified == true
+                    verifyType = profile.verifyType
+                    isVerified = verifyType.isVerified
                 }
                 
                 followersCount = supabase.postgrest["followers"].select(Columns.list("id")) {
@@ -483,8 +485,8 @@ fun UserProfileScreen(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(realName, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                                    if (isVerified) {
-                                        com.example.ui.VerifiedBadge(isVerified = true, iconSize = 20.dp)
+                                    if (verifyType != VerifyType.NONE) {
+                                        com.example.ui.VerifiedBadge(type = verifyType, iconSize = 20.dp)
                                     }
                                 }
                                 Text(
@@ -702,8 +704,8 @@ fun UserProfileScreen(
                         // Header
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(realName, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = SettingsColors.textPrimary, letterSpacing = (-0.5).sp, modifier = Modifier.weight(1f, fill = false), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                            if (isVerified) {
-                                com.example.ui.VerifiedBadge(isVerified = true, iconSize = 20.dp)
+                            if (verifyType != VerifyType.NONE) {
+                                com.example.ui.VerifiedBadge(type = verifyType, iconSize = 20.dp)
                             }
                         }
 

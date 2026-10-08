@@ -68,11 +68,17 @@ data class Profile(
     val cryptvoraId: String? = null,
     @kotlinx.serialization.SerialName("is_verified")
     val isVerified: Boolean? = false,
+    @kotlinx.serialization.SerialName("verified_type")
+    val verifiedType: String? = null,
     @kotlinx.serialization.SerialName("privacy_settings")
     val privacySettings: PrivacySettings? = null
 ) {
     val isOnlineNow: Boolean
         get() = isUserOnline(lastSeenAt)
+
+    /** نوع التوثيق الفعلي (أزرق/أحمر/لا شيء) مع التوافق مع is_verified القديم. */
+    val verifyType: VerifyType
+        get() = VerifyType.from(verifiedType, isVerified)
 
     val displayUsername: String get() { if (!username.isNullOrBlank()) return username; val derived = fullName?.replace(" ", "")?.lowercase(); return if (!derived.isNullOrBlank()) derived else "user_${id.take(6)}" }
     val displayName: String get() = fullName ?: displayUsername

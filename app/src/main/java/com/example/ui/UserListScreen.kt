@@ -63,7 +63,8 @@ data class UserListModel(
     val isBlocked: Boolean = false,
     val isMuted: Boolean = false,
     val isRemoved: Boolean = false,
-    val isNew: Boolean = false
+    val isNew: Boolean = false,
+    val verifyType: VerifyType = VerifyType.NONE // يُضاف في النهاية حتى لا يتأثر ترتيب الاستدعاءات القديمة
 )
 
 private fun generateMockUsers(type: String): List<UserListModel> {
@@ -102,7 +103,8 @@ private fun buildFollowUsers(
             displayName = p.displayName,
             username = p.displayUsername,
             avatarUrl = p.avatarUrl ?: "",
-            isVerified = p.isVerified == true,
+            isVerified = p.verifyType.isVerified,
+            verifyType = p.verifyType,
             isOnline = p.isOnlineNow,
             isFollowing = following.contains(p.id),
             category = if (followers.contains(p.id) && following.contains(p.id)) "mutual" else "none",
@@ -457,9 +459,9 @@ private fun UserListScreenImpl(
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f, fill = false)
                                         )
-                                        if (user.isVerified) {
+                                        if (user.verifyType != VerifyType.NONE) {
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            VerifiedBadge(isVerified = true, iconSize = 16.dp)
+                                            VerifiedBadge(type = user.verifyType, iconSize = 16.dp)
                                         }
                                         if (user.isNew) {
                                             Spacer(modifier = Modifier.width(6.dp))

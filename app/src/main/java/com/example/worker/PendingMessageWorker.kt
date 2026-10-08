@@ -7,6 +7,9 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.cache.AppDatabase
 import com.example.supabase
+import com.example.ui.AttachmentType
+import com.example.util.MediaUploader
+import com.example.util.UploadLimitException
 import com.example.ui.MessageInsert
 import com.example.ui.MessageRow
 import io.github.jan.supabase.postgrest.postgrest
@@ -39,8 +42,8 @@ class PendingMessageWorker(
                     var bucketName: String? = null
                     var path: String? = null
 
-                    // If it's an attachment and not yet uploaded (URL starts with content://)
-                    if (msg.media_url != null && msg.media_url.startsWith("content://")) {
+                    // If it's an attachment and not yet uploaded (local URI: content:// or file://)
+                    if (msg.media_url != null && (msg.media_url.startsWith("content://") || msg.media_url.startsWith("file://"))) {
                         bucketName = when (msg.message_type) {
                             "image" -> "chat-images"
                             "video" -> "chat-videos"
@@ -48,14 +51,31 @@ class PendingMessageWorker(
                             else -> "chat-files"
                         }
                         val uri = Uri.parse(msg.media_url)
-                        val inputStream = context.contentResolver.openInputStream(uri)
-                        val bytes = inputStream?.readBytes()
-                        if (bytes != null) {
-                            val fileName = UUID.randomUUID().toString() + "-" + System.currentTimeMillis()
-                            path = "${msg.chat_id}/${msg.sender_id}/$fileName"
-                            supabase.storage[bucketName].upload(path, bytes) { upsert = true }
-                            finalMediaUrl = supabase.storage[bucketName].createSignedUrl(path, 3650.days)
-                        } else {
+                        val attachType = when (msg.message_type) {
+                            "image" -> AttachmentType.IMAGE
+                            "video" -> AttachmentType.VIDEO
+                            "voice", "audio" -> AttachmentType.VOICE
+                            else -> AttachmentType.DOCUMENT
+                        }
+                        val fileName = UUID.randomUUID().toString() + "-" + System.currentTimeMillis()
+                        path = "${msg.chat_id}/${msg.sender_id}/$fileName"
+                        try {
+                            // نفس مسار الرفع الرئيسي: فحص الحدود + ضغط الصور
+                            finalMediaUrl = MediaUploader.prepareAndUpload(
+                                context = context,
+                                supabase = supabase,
+                                bucketName = bucketName,
+                                path = path,
+                                uri = uri,
+                                type = attachType,
+                                upsert = true
+                            )
+                        } catch (e: UploadLimitException) {
+                            messageDao.updateMessageStatus(msg.id, "FAILED")
+                            continue
+                        } catch (e: java.io.IOException) {
+                            // الملف المحلي لم يعد موجودًا: لا فائدة من إعادة المحاولة
+                            if (isNetworkError(e)) throw e
                             messageDao.updateMessageStatus(msg.id, "FAILED")
                             continue
                         }

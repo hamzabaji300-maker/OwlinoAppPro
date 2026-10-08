@@ -81,6 +81,14 @@ fun SettingsScreen(
     var username by remember { mutableStateOf(cachePrefs.getString("cache_username_$cachedUid", null) ?: "...") }
     var avatarUrl by remember { mutableStateOf<String?>(cachePrefs.getString("local_avatar_$cachedUid", null) ?: cachePrefs.getString("cache_avatar_$cachedUid", null)) }
     var isVerified by remember { mutableStateOf(cachePrefs.getBoolean("cache_verified_$cachedUid", false)) }
+    var verifyType by remember {
+        mutableStateOf(
+            VerifyType.from(
+                cachePrefs.getString("cache_verified_type_$cachedUid", null),
+                cachePrefs.getBoolean("cache_verified_$cachedUid", false)
+            )
+        )
+    }
     var searchQuery by remember { mutableStateOf("") }
     var activeSessionCount by remember { mutableStateOf(cachePrefs.getInt("cache_sessions_$cachedUid", 1)) }
     val prefs = remember { context.getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE) }
@@ -145,14 +153,18 @@ fun SettingsScreen(
                     }
 
                     val pBadge = profile["is_verified"]?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.toString()?.toBooleanStrictOrNull()
-                    if (pBadge == true) {
-                        isVerified = true
-                    }
+                    val pVerifiedType = (profile["verified_type"] as? kotlinx.serialization.json.JsonPrimitive)
+                        ?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.content
+                    val pType = VerifyType.from(pVerifiedType, pBadge)
+                    // نحدّث الحالة دائمًا (حتى لو سُحب التوثيق من الحساب)
+                    verifyType = pType
+                    isVerified = pType.isVerified
                     cachePrefs.edit()
                         .putString("cache_name_${currentUser.id}", realName)
                         .putString("cache_username_${currentUser.id}", username)
                         .putString("cache_avatar_${currentUser.id}", pAvatar)
-                        .putBoolean("cache_verified_${currentUser.id}", pBadge == true)
+                        .putBoolean("cache_verified_${currentUser.id}", pType.isVerified)
+                        .putString("cache_verified_type_${currentUser.id}", pType.raw)
                         .apply()
                 }
             } catch (e: Exception) {
@@ -252,9 +264,9 @@ fun SettingsScreen(
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
-                            if (isVerified) {
+                            if (verifyType != VerifyType.NONE) {
                                 Spacer(modifier = Modifier.width(4.dp))
-                                com.example.ui.VerifiedBadge(isVerified = true, iconSize = 16.dp)
+                                com.example.ui.VerifiedBadge(type = verifyType, iconSize = 16.dp)
                             }
                         }
                         Spacer(modifier = Modifier.height(2.dp))

@@ -169,6 +169,7 @@ data class ChatModel(
     val isChannel: Boolean = false,
     val isGroup: Boolean = false,
     val isVerified: Boolean = false,
+    val verifiedType: String = "none",
     val hasSparkleBadge: Boolean = false,
     val isReadReceipt: Boolean = false,
     val isMine: Boolean = false,
@@ -181,7 +182,11 @@ data class ChatModel(
     val lastMediaUrl: String? = null,
     val lastThumbnailUrl: String? = null,
     val participantIds: List<String> = emptyList() // Foreign keys
-)
+) {
+    /** نوع التوثيق الذي يُعرض فعلًا: القناة الرسمية دائمًا حمراء. */
+    val effectiveVerifyType: VerifyType
+        get() = if (id == OFFICIAL_CHANNEL_ID) VerifyType.RED else VerifyType.from(verifiedType, isVerified)
+}
 
 fun formatRelativeTime(timestamp: String?): String {
     if (timestamp.isNullOrEmpty()) return "آخر ظهور غير معروف"

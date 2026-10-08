@@ -70,7 +70,8 @@ object BotManager {
                         time = "Now",
                         timestamp = System.currentTimeMillis(),
                         isBot = true,
-                        isVerified = true
+                        isVerified = true,
+                        verifiedType = com.example.ui.VerifyType.RED.raw
                     )
                 )
             }

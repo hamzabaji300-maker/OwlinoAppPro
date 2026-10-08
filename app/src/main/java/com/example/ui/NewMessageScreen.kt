@@ -653,9 +653,9 @@ private fun NewMessageContactRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                if (person.isVerified == true) {
+                if (person.verifyType != VerifyType.NONE) {
                     Spacer(modifier = Modifier.width(4.dp))
-                    VerifiedBadge(isVerified = true, iconSize = 15.dp)
+                    VerifiedBadge(type = person.verifyType, iconSize = 15.dp)
                 }
             }
             Text(

@@ -74,6 +74,7 @@ fun SwipeProfileScreen(userId: String = "", onBack: () -> Unit = {
 
     val currentUser = supabase.auth.currentUserOrNull()
     var realName by remember { mutableStateOf("Nightowl") }
+    var verifyType by remember { mutableStateOf(VerifyType.NONE) }
     var username by remember { mutableStateOf(currentUser?.email?.substringBefore("@") ?: "user") }
     var bio by remember { mutableStateOf("Night-shift crypto trader. Order flow, structure, calm risk. Building OwlinoPlus — a private members' lounge for traders who prefer craft over noise.") }
     var location by remember { mutableStateOf("Lisbon") }
@@ -100,6 +101,7 @@ fun SwipeProfileScreen(userId: String = "", onBack: () -> Unit = {
                     realName = profile.fullName.takeIf { !it.isNullOrBlank() } ?: defaultName.replaceFirstChar { it.uppercase() }
                     username = profile.username.takeIf { !it.isNullOrBlank() } ?: defaultName
                     avatarUrl = profile.avatarUrl ?: ""
+                    verifyType = profile.verifyType
                 } else {
                     username = currentUser.email?.substringBefore("@") ?: "user"
                 }
@@ -280,12 +282,9 @@ fun SwipeProfileScreen(userId: String = "", onBack: () -> Unit = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(realName, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = __textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = "Verified",
-                        tint = __accent,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    if (verifyType != VerifyType.NONE) {
+                        VerifiedBadge(type = verifyType, iconSize = 18.dp)
+                    }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(badge, fontSize = 16.sp, color = __textSecondary)

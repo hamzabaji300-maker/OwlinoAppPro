@@ -1783,6 +1783,7 @@ theirLastSeenRule, amIBlocked, haveIBlocked)
                  },
                  blockedByThem = amIBlocked,
                  isVerified = currentChat?.isVerified == true,
+                 verifyType = currentChat?.effectiveVerifyType ?: VerifyType.NONE,
                  lastSeen = showLastSeen, 
                  statusOverride = if (isBotChat) com.example.bot.BotManagerStrings.usersLabel(botUsers ?: 0) else null,
                  onBack = onBack, 
@@ -2319,19 +2320,17 @@ MessageStatus.SENT, time = timeStr) else it
                                 }
                             }
                      } else null
-                    val tempMsgsWithUris = uris.map { uri ->
+                    val tempMsgsWithUris = uris.mapNotNull { uri ->
+                        // فحص حد الحجم قبل أي نسخ أو رفع (حدود الخطة المجانية)
+                        val limitError = com.example.util.UploadLimits.check(type, com.example.util.MediaUploader.getFileSize(context, uri))
+                        if (limitError != null) {
+                            toastNotification = ToastNotification(System.currentTimeMillis(), limitError, ToastType.INFO)
+                            return@mapNotNull null
+                        }
                         var calculatedRatio: Float? = null
                         if (type == AttachmentType.IMAGE) {
-                            try {
-                                val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                                android.graphics.BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri), null, options)
-                                if (options.outWidth > 0 && options.outHeight > 0) {
-                                    val r = options.outWidth.toFloat() / options.outHeight.toFloat()
-                                    if (!r.isNaN() && !r.isInfinite()) {
-                                        calculatedRatio = r
-                                    }
-                                }
-                            } catch(e: Exception) {}
+                            // النسبة بعد تطبيق اتجاه EXIF حتى لا تُعرض صور الكاميرا العمودية بنسبة خاطئة
+                            calculatedRatio = com.example.util.MediaUploader.displayAspectRatio(context, uri)
                         } else if (type == AttachmentType.VOICE) {
                             // نستخرج مدة التسجيل (مللي) من اسم الملف ونخزّنها بالثواني في حقل النسبة
                             // (media_aspect_ratio) لأنه غير مستخدم أصلًا للصوت، فنتفادى تعديل قاعدة البيانات.
@@ -2345,18 +2344,16 @@ MessageStatus.SENT, time = timeStr) else it
                         val tempId = java.util.UUID.randomUUID().toString()
                         var localUriStr = uri.toString()
                         try {
-                            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                            if (bytes != null) {
-                                val ext = when (type) {
-                                    AttachmentType.IMAGE -> ".jpg"
-                                    AttachmentType.VIDEO -> ".mp4"
-                                    AttachmentType.AUDIO, AttachmentType.VOICE -> ".m4a"
-                                    else -> ""
-                                }
-                                val localFile = com.example.util.LocalFileManager.saveFile(context, bytes, "temp_${tempId}$ext")
-                                if (localFile != null) {
-                                    localUriStr = localFile.toURI().toString()
-                                }
+                            val ext = when (type) {
+                                AttachmentType.IMAGE -> ".jpg"
+                                AttachmentType.VIDEO -> ".mp4"
+                                AttachmentType.AUDIO, AttachmentType.VOICE -> ".m4a"
+                                else -> ""
+                            }
+                            // نسخ بالتدفق (دون تحميل الملف كله في الذاكرة)
+                            val localFile = com.example.util.LocalFileManager.saveFromUri(context, uri, "temp_${tempId}$ext")
+                            if (localFile != null) {
+                                localUriStr = localFile.toURI().toString()
                             }
                         } catch(e: Exception) {}
 
@@ -2434,11 +2431,15 @@ MessageStatus.SENT, time = timeStr) else it
                                 val calculatedRatio = tempMsg.attachments.firstOrNull()?.aspectRatio
                                 val fileName = java.util.UUID.randomUUID().toString() + "-" +System.currentTimeMillis()
                                 val path = "$chatId/$myUserId/$fileName"
-                                val inputStream = context.contentResolver.openInputStream(uri)
-                                val bytes = inputStream?.readBytes()
-                                if (bytes != null) {
-                                    com.example.supabase.storage[bucketName].upload(path,bytes)
-                                    val signedUrl = com.example.supabase.storage[bucketName].createSignedUrl(path,kotlin.time.Duration.parse("3650d"))
+                                run {
+                                    val signedUrl = com.example.util.MediaUploader.prepareAndUpload(
+                                        context = context,
+                                        supabase = com.example.supabase,
+                                        bucketName = bucketName,
+                                        path = path,
+                                        uri = uri,
+                                        type = type
+                                    )
 
                                     // نولّد ونرفع نسخة صغيرة مضغوطة (للصور بس) — هذا اللي يخلي
                                     // العرض داخل الدردشة سريع (كيما تيليجرام)، بدل تحميل الصورة الكاملة كل مرة
@@ -2521,7 +2522,7 @@ MessageStatus.SENT, time = timeStr) else it
                             } catch(e: Exception) {
                                 e.printStackTrace()
                                 val msgTxt = e.message?.lowercase() ?: ""
-                                val isNetworkError = e is java.net.UnknownHostException || e is java.net.ConnectException || e is java.net.SocketTimeoutException || "timeout" in msgTxt || "network" in msgTxt || "connection" in msgTxt || "unable to resolve host" in msgTxt || "failed to connect" in msgTxt
+                                val isNetworkError = e !is com.example.util.UploadLimitException && (e is java.net.UnknownHostException || e is java.net.ConnectException || e is java.net.SocketTimeoutException || "timeout" in msgTxt || "network" in msgTxt || "connection" in msgTxt || "unable to resolve host" in msgTxt || "failed to connect" in msgTxt)
                                 
                                 if (isNetworkError) {
                                     val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.example.worker.PendingMessageWorker>()
@@ -3095,6 +3096,7 @@ isNowSaved) else it }
             name = currentChat?.name ?: name,
             avatarUrl = currentChat?.avatarUrl,
             isVerified = currentChat?.isVerified == true,
+            verifyType = currentChat?.effectiveVerifyType ?: VerifyType.NONE,
             subscribersLabel = channelSubscriberCount?.let { c -> if (c == 1) "1 abonné" else "$c abonnés" },
             description = null,
             mediaItems = channelMedia,
@@ -3278,6 +3280,7 @@ fun FloatingTopBar(
     isMuted: Boolean = false,
     isPinned: Boolean = false,
     isVerified: Boolean = false,
+    verifyType: VerifyType = VerifyType.NONE,
     onMuteToggle: () -> Unit = {},
     onPinToggle: () -> Unit = {},
     isSearchMode: Boolean = false,
@@ -3418,9 +3421,13 @@ fun FloatingTopBar(
                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                    Row(verticalAlignment = Alignment.CenterVertically) {
                        Text(if (blockedByThem) "-" else name, color = textColor, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                       if (isVerified && !blockedByThem) {
+                       if ((verifyType != VerifyType.NONE || isVerified) && !blockedByThem) {
                            Spacer(modifier = Modifier.width(4.dp))
-                           com.example.ui.VerifiedBadge(isVerified = true, iconSize = 16.dp)
+                           if (verifyType != VerifyType.NONE) {
+                               com.example.ui.VerifiedBadge(type = verifyType, iconSize = 16.dp)
+                           } else {
+                               com.example.ui.VerifiedBadge(isVerified = true, iconSize = 16.dp)
+                           }
                        }
                        if (isMuted) {
                            Spacer(modifier = Modifier.width(4.dp))
@@ -4370,8 +4377,9 @@ fun MessageInputBar(
             recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
             recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
             recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
-            recorder.setAudioEncodingBitRate(64000)
-            recorder.setAudioSamplingRate(44100)
+            recorder.setAudioChannels(1)            // أحادي القناة: يكفي للصوت البشري
+            recorder.setAudioEncodingBitRate(32000) // 32 كيلوبت/ث: واضح للكلام وحجمه صغير
+            recorder.setAudioSamplingRate(22050)
             recorder.setOutputFile(file.absolutePath)
             recorder.prepare()
             recorder.start()

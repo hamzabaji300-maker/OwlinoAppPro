@@ -452,9 +452,9 @@ fun RealUserListItemClone(user: Profile, onClick: () -> Unit, kindLabel: String?
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                if (user.isVerified == true) {
+                if (user.verifyType != VerifyType.NONE) {
                     Spacer(modifier = Modifier.width(6.dp))
-                    com.example.ui.VerifiedBadge(isVerified = true, iconSize = 16.dp)
+                    com.example.ui.VerifiedBadge(type = user.verifyType, iconSize = 16.dp)
                 }
             }
             Spacer(modifier = Modifier.height(3.dp))
