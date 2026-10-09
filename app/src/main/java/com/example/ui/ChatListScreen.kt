@@ -339,8 +339,11 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
     val cachedScreenChats = remember { ChatListCache.loadChats(context) }
     var isInitialLoad by remember { androidx.compose.runtime.mutableStateOf(true) }
     
-    LaunchedEffect(roomChats, newCachedChatsRaw) {
-        if (roomChats != null || newCachedChatsRaw.isNotEmpty()) {
+    // نبقى على القائمة المحفوظة (نفس الترتيب والصور) حتى تصل بيانات Room الكاملة؛ لا ننتقل لقائمة ناقصة
+    // (بلا صور/أنواع) لأنها كانت تجعل المحادثات تختفي وتعود. التحديث من السيرفر يتم بالخلفية فقط.
+    LaunchedEffect(roomChats, cachedScreenChats) {
+        val roomReady = roomChats != null && (roomChats.isNotEmpty() || cachedScreenChats.isNullOrEmpty() || com.example.ui.GlobalAppState.hasCompletedInitialChatSync)
+        if (roomReady) {
             kotlinx.coroutines.delay(100) // Give DBs a tiny moment to emit
             isInitialLoad = false
         }
@@ -651,24 +654,25 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
                     val avatar = if (isGroupOrChannel) rc.avatar_url else otherProfile?.avatarUrl
                     
                     val lastMsg = latestMessages[rc.id]
-                    val msgText = lastMsg?.content ?: ""
+                    // الحالة المحلية السابقة: نحتفظ بها إذا لم يرجع السيرفر آخر رسالة (فشل الطلب/حد الصفوف)
+                    // حتى لا تختفي المحادثة أو يتغير ترتيبها مؤقتاً.
+                    val existingChat = roomChats?.find { it.id == rc.id } ?: chatDao.getChatById(rc.id)
+                    val msgText = lastMsg?.content ?: existingChat?.message ?: ""
                     
                     val timeStr = if (lastMsg != null) {
                         formatTimeSafe(lastMsg.created_at)
-                    } else "Now"
+                    } else existingChat?.time ?: "Now"
                     
                     val timestamp = if (lastMsg != null) {
                         parseTimestampSafe(lastMsg.created_at)
-                    } else 0L
-                    
-                    val existingChat = roomChats?.find { it.id == rc.id }
+                    } else existingChat?.timestamp ?: System.currentTimeMillis()
                     val preservedDraft = existingChat?.draft ?: ""
                     
                     // رقم السيرفر هو المرجع (حتى لو 0). نحتفظ بالرقم المحلي فقط إذا الحساب فشل (نت/خطأ).
                     val serverUnread: Int? = unreadCounts[rc.id]
                     val finalUnreadCount = serverUnread ?: existingChat?.unreadCount ?: 0
                     
-                    val isMine = lastMsg?.sender_id == myId
+                    val isMine = if (lastMsg != null) lastMsg.sender_id == myId else existingChat?.isMine ?: false
                     // Check if it's already read locally for the SAME message
                     val isReadReceipt = if (lastMsg?.id in otherReadMessageIds) {
                         true
@@ -704,9 +708,9 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
                         isNotes = existingChat?.isNotes ?: false,
                         isArchived = existingChat?.isArchived ?: false,
                         isDefaultAvatar = existingChat?.isDefaultAvatar ?: false,
-                        lastMediaType = lastMsg?.message_type,
-                        lastMediaUrl = lastMsg?.media_url,
-                        lastThumbnailUrl = lastMsg?.thumbnail_url
+                        lastMediaType = if (lastMsg != null) lastMsg.message_type else existingChat?.lastMediaType,
+                        lastMediaUrl = if (lastMsg != null) lastMsg.media_url else existingChat?.lastMediaUrl,
+                        lastThumbnailUrl = if (lastMsg != null) lastMsg.thumbnail_url else existingChat?.lastThumbnailUrl
                     )
                 }
                 chatDao.insertAll(newEntities)
@@ -1579,7 +1583,7 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
                 val base = (chatsList ?: emptyList()).filter { !it.isArchived }
                 val list = when (selectedFilter) {
                     unreadText -> base.filter { it.unreadCount > 0 }
-                    groupsText -> base.filter { !it.isChannel && !it.isBot && it.subtitle != null && it.subtitle.contains("members") }
+                    groupsText -> base.filter { it.isGroup && !it.isChannel && !it.isBot }
                     channelsText -> base.filter { it.isChannel }
                     else -> base
                 }

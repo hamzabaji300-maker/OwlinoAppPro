@@ -157,6 +157,7 @@ fun MessageBubble(
             Spacer(Modifier.width(3.dp))
         }
         val __senderSlot = showSender && !isMe
+        val __nameAbove = __senderSlot && isFirstInCluster && !isEmojiOnlyMessage && msg.senderName.isNotBlank()
         if (__senderSlot) {
             // صورة المرسل على اليسار (تظهر عند آخر رسالة في العنقود، وبقية الرسائل تحافظ على نفس المحاذاة)
             Box(modifier = Modifier.size(30.dp)) {
@@ -228,13 +229,14 @@ fun MessageBubble(
                     )
                 }
         ) {
-            if (__senderSlot && isFirstInCluster && !isEmojiOnlyMessage && msg.senderName.isNotBlank()) {
+            if (__nameAbove) {
                 val __nameColors = listOf(Color(0xFFE17076), Color(0xFFEDA86C), Color(0xFFA695E7), Color(0xFF7BC862), Color(0xFF6EC9CB), Color(0xFF65AADD), Color(0xFFEE7AAE))
                 val __nameColor = __nameColors[(msg.senderId.hashCode() and 0x7fffffff) % __nameColors.size]
                 Text(
                     text = msg.senderName,
                     color = __nameColor,
                     fontSize = 13.sp,
+                    lineHeight = 15.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -511,7 +513,7 @@ fun MessageBubble(
                     if (isSingleLine) {
                         val richSingle = remember(cleanText) { buildRichMessageContent(cleanText, 19.sp, 20.dp) }
                         FlowRow(
-                            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)
+                            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = if (__nameAbove && msg.replyTo == null) 0.dp else 6.dp, bottom = 6.dp)
                         ) {
                             Text(
                                 text = richSingle.text,
@@ -545,7 +547,7 @@ fun MessageBubble(
                         }
                     } else {
                         Column(
-                            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 5.dp)
+                            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = if (__nameAbove && msg.replyTo == null) 0.dp else 6.dp, bottom = 5.dp)
                         ) {
                             if (detectedUrl != null) {
                                 LinkPreviewCard(url = detectedUrl, isMe = isMe, textColor = textColor)
@@ -607,142 +609,96 @@ fun MessageBubble(
 fun ChannelPostCard(
     msg: MessageModel,
     channelName: String,
+    onImageClick: ((String) -> Unit)? = null,
     onLightLongPress: (MessageModel, Offset) -> Unit = { _, _ -> },
     onHeavyLongPress: (MessageModel, Offset) -> Unit = { _, _ -> }
 ) {
     val __theme = com.example.ui.LocalSettingsTheme.current.theme
-    val cardBg = __theme.surfaceColor
     val textColor = __theme.textPrimary
     val subColor = __theme.textSecondary
     var showBreakdown by remember(msg.id) { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(cardBg)
-                .border(1.dp, subColor.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = { offset ->
-                            val releaseTimeout = kotlinx.coroutines.withTimeoutOrNull(250) {
-                                tryAwaitRelease()
-                            }
-                            if (releaseTimeout == null) {
-                                onLightLongPress(msg, offset)
-                                val releaseTimeout2 = kotlinx.coroutines.withTimeoutOrNull(250) {
-                                    tryAwaitRelease()
-                                }
-                                if (releaseTimeout2 == null) {
-                                    onHeavyLongPress(msg, offset)
-                                    tryAwaitRelease()
-                                }
-                            }
-                        }
-                    )
-                }
-                .padding(bottom = 4.dp)
-        ) {
-            if (msg.text.isNotBlank()) {
-                Text(
-                    text = msg.text,
-                    color = textColor,
-                    fontSize = 15.sp,
-                    lineHeight = 21.sp,
-                    modifier = Modifier.padding(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 2.dp)
-                )
-            }
+    // المنشور يُرسم بنفس مكوّن الفقاعة (نص/صور/فيديو/ملفات/صوت) فتظهر كل أنواع المحتوى،
+    // ويكون بحجم المحتوى (فقاعة صغيرة) مع الوقت والمشاهدات في نفس السطر الضيق بجانب النص.
+    val bubbleMsg = msg.copy(
+        isMine = false,
+        reactions = emptyList(),
+        time = if (!msg.viewsLabel.isNullOrBlank()) "\uD83D\uDC41 ${msg.viewsLabel}  ${msg.time}" else msg.time
+    )
 
-            // الفوتر: الوقت + الدبوس (إن وجد) + المشاهدات
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        MessageBubble(
+            msg = bubbleMsg,
+            showSender = false,
+            onImageClick = onImageClick,
+            isFirstInCluster = true,
+            isLastInCluster = false,
+            onReplyClick = { },
+            onDoubleTap = { },
+            onLightLongPress = onLightLongPress,
+            onHeavyLongPress = onHeavyLongPress
+        )
+
+        // صف التفاعلات: شريحة forward + شريحة تفاعلات (أعلى 4 + مجموع كلي) + شريحة تفاعلي الشخصي
+        if (!msg.forwardsLabel.isNullOrBlank() || msg.channelReactions.isNotEmpty() || msg.reactions.isNotEmpty()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
-                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 1.dp, end = 12.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .padding(start = 12.dp, top = 4.dp, end = 12.dp)
+                    .horizontalScroll(rememberScrollState())
             ) {
-                Text(msg.time, color = subColor, fontSize = 12.sp)
-                if (msg.isPinned) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(
-                        imageVector = Icons.Filled.PushPin,
-                        contentDescription = "Pinned",
-                        tint = subColor,
-                        modifier = Modifier.size(12.dp).graphicsLayer { rotationZ = 45f }
-                    )
-                }
-                if (!msg.viewsLabel.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Icon(Icons.Outlined.Visibility, contentDescription = "Views", tint = subColor, modifier = Modifier.size(13.dp))
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Text(msg.viewsLabel, color = subColor, fontSize = 12.sp)
-                }
-            }
-
-            // صف التفاعلات: شريحة forward + شريحة تفاعلات (أعلى 4 + مجموع كلي) + شريحة تفاعلي الشخصي
-            if (!msg.forwardsLabel.isNullOrBlank() || msg.channelReactions.isNotEmpty() || msg.reactions.isNotEmpty()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .padding(start = 12.dp, top = 4.dp, end = 12.dp)
-                        .horizontalScroll(rememberScrollState())
-                ) {
-                    if (!msg.forwardsLabel.isNullOrBlank()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(subColor.copy(alpha = 0.08f))
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(msg.forwardsLabel, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(Icons.Filled.ArrowForward, contentDescription = "Forwards", tint = subColor, modifier = Modifier.size(14.dp))
-                        }
+                if (!msg.forwardsLabel.isNullOrBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(subColor.copy(alpha = 0.08f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Text(msg.forwardsLabel, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.Filled.ArrowForward, contentDescription = "Forwards", tint = subColor, modifier = Modifier.size(14.dp))
                     }
-                    if (msg.channelReactions.isNotEmpty()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(subColor.copy(alpha = 0.08f))
-                                .clickable { showBreakdown = true }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            val topFour = msg.channelReactions.sortedByDescending { it.count }.take(4)
-                            topFour.forEach { reaction ->
-                                val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
-                                if (url != null) {
-                                    LottieEmojiReaction(url = url, size = 17.dp)
-                                } else {
-                                    Text(reaction.emoji, fontSize = 13.sp)
-                                }
+                }
+                if (msg.channelReactions.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(subColor.copy(alpha = 0.08f))
+                            .clickable { showBreakdown = true }
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        val topFour = msg.channelReactions.sortedByDescending { it.count }.take(4)
+                        topFour.forEach { reaction ->
+                            val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
+                            if (url != null) {
+                                LottieEmojiReaction(url = url, size = 17.dp)
+                            } else {
+                                Text(reaction.emoji, fontSize = 13.sp)
                             }
-                            val totalLabel = msg.totalInteractionsLabel
-                                ?: formatReactionCount(msg.channelReactions.sumOf { it.count })
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(totalLabel, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         }
+                        val totalLabel = msg.totalInteractionsLabel
+                            ?: formatReactionCount(msg.channelReactions.sumOf { it.count })
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(totalLabel, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
-                    if (msg.reactions.isNotEmpty()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(subColor.copy(alpha = 0.14f))
-                                .border(1.dp, subColor.copy(alpha = 0.3f), RoundedCornerShape(50))
-                                .padding(horizontal = 8.dp, vertical = 5.dp)
-                        ) {
-                            msg.reactions.forEach { emoji ->
-                                val myUrl = remember(emoji) { NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji)) }
-                                if (myUrl != null) {
-                                    LottieEmojiReaction(url = myUrl, size = 16.dp)
-                                }
+                }
+                if (msg.reactions.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(subColor.copy(alpha = 0.14f))
+                            .border(1.dp, subColor.copy(alpha = 0.3f), RoundedCornerShape(50))
+                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                    ) {
+                        msg.reactions.forEach { emoji ->
+                            val myUrl = remember(emoji) { NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji)) }
+                            if (myUrl != null) {
+                                LottieEmojiReaction(url = myUrl, size = 16.dp)
                             }
                         }
                     }

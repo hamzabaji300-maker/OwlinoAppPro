@@ -1736,6 +1736,10 @@ else it
         }
     }
 
+// قناة بلا شريط كتابة (مشترك عادي): نخفي الكيبورد حتى تبدأ المنشورات من أسفل الهاتف فعلاً
+LaunchedEffect(isChannel, isChannelAdmin) {
+    if (isChannel && !isChannelAdmin) keyboardController?.hide()
+}
 MaterialTheme(colorScheme = colorScheme) {
 Box(modifier = Modifier.fillMaxSize()) {
     ChatWallpaper()
@@ -1746,7 +1750,7 @@ Box(modifier = Modifier.fillMaxSize()) {
       contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
       containerColor = androidx.compose.ui.graphics.Color.Transparent
     ) { paddingValues ->
-    Box(modifier = Modifier.fillMaxSize().padding(paddingValues).consumeWindowInsets(paddingValues).imePadding()) {
+    Box(modifier = Modifier.fillMaxSize().padding(paddingValues).consumeWindowInsets(paddingValues).let { m -> if (isChannel && !isChannelAdmin) m else m.imePadding() }) {
 
        Column(modifier = Modifier.fillMaxSize()) {
 
@@ -3905,6 +3909,7 @@ fun ChatMessages(
                          ChannelPostCard(
                             msg = message,
                             channelName = name,
+                            onImageClick = { clickedMsgId -> onImageClick(clickedMsgId) },
                             onLightLongPress = { _, _ ->
                                if (isSelectionMode) onToggleSelect(message.id)
                                else {
