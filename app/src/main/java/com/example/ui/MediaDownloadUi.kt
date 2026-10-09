@@ -104,13 +104,13 @@ fun DownloadableImage(
             } else {
                 rememberMediaSource(context, att.messageId, att.thumbnailUrl ?: att.url, isThumbnail = att.thumbnailUrl != null)
             }
-            coil.compose.SubcomposeAsyncImage(
+            coil.compose.AsyncImage(
                 model = coil.request.ImageRequest.Builder(context)
                     .data(model)
                     .memoryCacheKey("media_" + att.messageId + if (localPath != null) "_l" else "_r")
                     .crossfade(false)
                     .build(),
-                loading = { Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f))) },
+                placeholder = androidx.compose.ui.graphics.painter.ColorPainter(Color.Black.copy(alpha = 0.12f)),
                 contentDescription = null,
                 contentScale = contentScale,
                 modifier = Modifier.fillMaxSize().clickable { onOpen() }

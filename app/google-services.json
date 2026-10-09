@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "352430364246",
+    "project_id": "hoox-2b95d",
+    "storage_bucket": "hoox-2b95d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:352430364246:android:a33cd93214324066c14df7",
+        "android_client_info": {
+          "package_name": "com.owlino.dxpdis"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAQdfuMDuz9UPi0N5_AauU5MnJHVGpslkA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

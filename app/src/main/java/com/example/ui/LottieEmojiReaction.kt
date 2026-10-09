@@ -29,6 +29,7 @@ import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.animateLottieCompositionAsState
 import com.airbnb.lottie.compose.rememberLottieComposition
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 // روابط رجعت 404 (ما عندهاش ملف متحرك عند Google) — ما نعاودوش نطلبوها في نفس الجلسة
@@ -122,12 +123,24 @@ private fun StaticNotoEmoji(url: String, size: Dp, onFailed: (Throwable?) -> Uni
  */
 object EmojiPlayRegistry {
     private val played: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet<String>())
+    private val seenKeys: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet<String>())
+    private val seenEmojiTexts: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet<String>())
+    /** عدد الإيموجيات المتحركة حاليًا (لتفادي تشغيل عشرات الأنيميشن دفعة واحدة). */
+    val active = java.util.concurrent.atomic.AtomicInteger(0)
+    private const val MAX_ACTIVE = 6
 
-    /** true فقط للرسالة الحديثة جدًا (أُرسلت/وصلت الآن) ولم تتحرك من قبل. */
+    /**
+     * يتحرك الإيموجي (مرة واحدة كاملة) عند أول ظهور له: إذا كانت الرسالة جديدة (أُرسلت/وصلت الآن)
+     * أو إذا كانت أول مرة يراها المستخدم لهذا الإيموجي. بعدها يبقى ثابتًا حتى يضغط عليه.
+     */
     fun shouldAutoPlay(timestamp: Long, text: String): Boolean {
-        if (System.currentTimeMillis() - timestamp > 15_000L) return false
-        return played.add("$timestamp|$text")
+        if (!played.add("$timestamp|$text")) return false
+        if (System.currentTimeMillis() - timestamp <= 15_000L) return true
+        return seenEmojiTexts.add(text) && active.get() < MAX_ACTIVE
     }
+
+    /** للتفاعلات والإيموجي داخل النص: يتحرك أول مرة فقط لكل مفتاح في الجلسة. */
+    fun tryAutoPlay(key: String): Boolean = seenKeys.add(key) && active.get() < MAX_ACTIVE
 }
 
 @Composable
@@ -140,10 +153,13 @@ fun LottieEmojiReaction(
     // وضع الرسائل: ثابت دائمًا، يتحرك مرة واحدة عند الإرسال (autoPlayOnce)، وعند الضغط عليه لثوانٍ ثم يتوقف
     tapToPlay: Boolean = false,
     autoPlayOnce: Boolean = false,
+    // إن وُجد: يتحرك عند أول ظهور لهذا المفتاح فقط (يتجاهل autoPlayOnce)
+    playKey: String? = null,
 ) {
     val info = remember(url) { buildEmojiUrlInfo(url) }
     var index by remember(url) { mutableIntStateOf(nextUsableIndex(info.candidates, 0)) }
-    var playing by remember(url) { mutableStateOf(tapToPlay && autoPlayOnce) }
+    val autoOnce = if (playKey != null) remember(playKey) { EmojiPlayRegistry.tryAutoPlay(playKey) } else autoPlayOnce
+    var playing by remember(url) { mutableStateOf(tapToPlay && autoOnce) }
     var tapped by remember(url) { mutableStateOf(false) }
     val showAnimation = if (tapToPlay) playing else animate
 
@@ -187,18 +203,32 @@ fun LottieEmojiReaction(
                     tapped -> 2
                     else -> 1
                 }
-                val progress by animateLottieCompositionAsState(
+                val progressState = animateLottieCompositionAsState(
                     composition = composition,
                     iterations = iterationsCount,
                     isPlaying = true,
                     speed = 1f,
                 )
+                val px = with(LocalDensity.current) { size.roundToPx() }.coerceAtLeast(1)
+                val cacheKey = "$currentUrl@$px"
+                // نخزّن الإطار الثابت مسبقًا حتى لا يظهر فراغ/"إعادة تحميل" عند توقف الحركة
+                LaunchedEffect(composition, cacheKey) {
+                    val c = composition
+                    if (c != null && staticEmojiCache.get(cacheKey) == null) {
+                        val bmp = withContext(Dispatchers.Default) { renderFirstFrame(c, px) }
+                        staticEmojiCache.put(cacheKey, bmp)
+                    }
+                }
                 if (tapToPlay) {
+                    androidx.compose.runtime.DisposableEffect(Unit) {
+                        EmojiPlayRegistry.active.incrementAndGet()
+                        onDispose { EmojiPlayRegistry.active.decrementAndGet() }
+                    }
+                    // نوقف الحركة فقط بعد اكتمالها فعليًا (وليس بمؤقت) ثم نعرض الإطار الثابت المخزّن
                     LaunchedEffect(composition, tapped) {
-                        val c = composition
-                        if (c != null) {
-                            val total = (c.duration * iterationsCount).toLong().coerceIn(1200L, 6000L)
-                            kotlinx.coroutines.delay(total + 150L)
+                        if (composition != null) {
+                            androidx.compose.runtime.snapshotFlow { progressState.value }.first { it >= 1f }
+                            kotlinx.coroutines.delay(120L)
                             playing = false
                         }
                     }
@@ -215,7 +245,7 @@ fun LottieEmojiReaction(
 
                 LottieAnimation(
                     composition = composition,
-                    progress = { progress },
+                    progress = { progressState.value },
                     modifier = Modifier.size(size),
                 )
             }
