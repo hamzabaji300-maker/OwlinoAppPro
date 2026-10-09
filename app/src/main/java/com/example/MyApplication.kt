@@ -111,6 +111,12 @@ class MyApplication : Application(), ImageLoaderFactory {
                     .build()
             }
             .components {
+                // فك الـ GIF والـ WebP المتحركة
+                if (android.os.Build.VERSION.SDK_INT >= 28) {
+                    add(coil.decode.ImageDecoderDecoder.Factory())
+                } else {
+                    add(coil.decode.GifDecoder.Factory())
+                }
                 // مفتاح كاش ثابت لروابط Supabase (توقيع/توكن يتغير) ليبقى الأفاتار متاحاً بدون إنترنت
                 add(coil.key.Keyer<android.net.Uri> { data, _ ->
                     if (data.host?.contains("supabase") == true && data.path != null)

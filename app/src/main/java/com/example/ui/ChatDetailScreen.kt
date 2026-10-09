@@ -405,6 +405,7 @@ cachedChatDao.insertCachedChats(listOf(existingCachedChat.copy(unread_count = 0)
     // Cache loaded in the main LaunchedEffect
 
     var myUserId by remember { mutableStateOf<String?>(null) }
+    var showGifPicker by remember { mutableStateOf(false) }
     // Room هو المصدر الوحيد: كل رسالة (فردية/مجموعة/قناة/بوت/محفوظة) تصل للواجهة من هنا فقط.
     // نستعمل معرّف الجلسة المخزّنة محلياً مباشرة حتى لا ننتظر الشبكة (أول إطار صحيح isMine).
     val roomUserId = myUserId ?: (try { com.example.supabase.auth.currentSessionOrNull()?.user?.id } catch (e: Exception) { null })
@@ -413,7 +414,16 @@ cachedChatDao.insertCachedChats(listOf(existingCachedChat.copy(unread_count = 0)
             lastDbSnapshot.clear()
             dbMsgs.forEach { lastDbSnapshot[it.id] = it }
             val merged = withContext(Dispatchers.Default) { mergeRoomIntoUi(dbMsgs, messages, deletedMessageIds) }
-            if (merged != messages) messages = merged
+            // دمج قديم قد يعيد رسالة مؤقتة استُبدلت للتو (فتظهر مكررة): نستبعد المحذوف عند التطبيق
+            val safe = merged.filter { it.id !in deletedMessageIds }
+            if (safe != messages) messages = safe
+        }
+    }
+    // عندما يرسل عامل الإرسال المؤجّل رسالة، نزيل نسختها المؤقتة من الشاشة المفتوحة
+    androidx.compose.runtime.LaunchedEffect(chatId) {
+        com.example.AppState.messageReplaced.collect { tempId ->
+            deletedMessageIds.add(tempId)
+            if (messages.any { it.id == tempId }) messages = messages.filter { it.id != tempId }
         }
     }
     // كتابة راجعة إلى Room لكل ما تغيّر حيّاً (تفاعل/تعديل/قراءة/حذف/رسائل البوت) فيبقى Room دائماً هو الحقيقة
@@ -1434,6 +1444,119 @@ else it
     }
     var highlightedMessageId by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
+
+    // إرسال GIF: نرسل الرابط فقط (لا رفع ولا تخزين عندنا). المعرّف يولّده التطبيق فلا تتكرر.
+    fun sendGifMessage(gif: com.example.util.GifItem) {
+        val uid = myUserId ?: return
+        val replyMsg = replyingTo
+        replyingTo = null
+        val tempId = java.util.UUID.randomUUID().toString()
+        val ratio = gif.aspectRatio
+        val timeNow = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+        val attachment = Attachment(
+            messageId = tempId,
+            type = AttachmentType.IMAGE,
+            url = gif.url,
+            thumbnailUrl = null,
+            aspectRatio = ratio
+        )
+        val newMsg = MessageModel(
+            id = tempId,
+            text = "",
+            time = timeNow,
+            isMine = true,
+            replyToId = replyMsg?.id,
+            replyTo = replyMsg,
+            attachments = listOf(attachment),
+            status = MessageStatus.SENDING
+        )
+        messages = (messages + newMsg).distinctBy { it.id }
+        SendSound.play(context)
+        com.example.AppState.inFlightMessageIds.add(tempId)
+        coroutineScope.launch {
+            try {
+                try {
+                    cachedMessageDao.insertMerged(
+                        com.example.cache.CachedMessage(
+                            id = tempId,
+                            chat_id = chatId,
+                            sender_id = uid,
+                            content = "",
+                            created_at = java.time.Instant.now().toString(),
+                            status = "SENDING",
+                            message_type = "image",
+                            media_url = gif.url,
+                            reply_to_id = replyMsg?.id,
+                            media_aspect_ratio = ratio,
+                            media_group_id = null
+                        )
+                    )
+                } catch (e: Exception) {}
+
+                val insertData = MessageInsert(
+                    chat_id = chatId,
+                    sender_id = uid,
+                    content = "",
+                    message_type = "image",
+                    media_url = gif.url,
+                    reply_to_id = replyMsg?.id,
+                    media_aspect_ratio = ratio
+                )
+                val result = com.example.util.MessageSender.insert(com.example.supabase, insertData, tempId)
+                val timeStr = formatTimeSafe(result.created_at)
+                if (result.id != tempId) deletedMessageIds.add(tempId)
+                try {
+                    cachedMessageDao.insertMerged(
+                        com.example.cache.CachedMessage(
+                            id = result.id,
+                            chat_id = result.chat_id,
+                            sender_id = result.sender_id,
+                            content = result.content,
+                            created_at = result.created_at,
+                            status = "SENT",
+                            message_type = result.message_type,
+                            media_url = result.media_url,
+                            reply_to_id = result.reply_to_id,
+                            media_aspect_ratio = result.media_aspect_ratio,
+                            media_group_id = result.media_group_id
+                        )
+                    )
+                    if (result.id != tempId) cachedMessageDao.deleteMessageById(tempId)
+                } catch (e: Exception) {}
+                val exists = messages.any { it.id == result.id && it.id != tempId }
+                messages = if (exists) {
+                    messages.filter { it.id != tempId }
+                } else {
+                    messages.map { if (it.id == tempId) it.copy(id = result.id, status = MessageStatus.SENT, time = timeStr) else it }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                if (com.example.util.NetworkUtils.isNetworkError(context, e)) {
+                    // تبقى "قيد الإرسال" وتُرسل تلقائيًا عند عودة الإنترنت
+                    val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.example.worker.PendingMessageWorker>()
+                        .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                        .build()
+                    androidx.work.WorkManager.getInstance(context).enqueueUniqueWork("PendingMessageUpload", androidx.work.ExistingWorkPolicy.APPEND_OR_REPLACE, workRequest)
+                } else {
+                    messages = messages.map { if (it.id == tempId) it.copy(status = MessageStatus.FAILED) else it }
+                    try { cachedMessageDao.updateMessageStatus(tempId, "FAILED") } catch (ex: Exception) {}
+                }
+            } finally {
+                com.example.AppState.inFlightMessageIds.remove(tempId)
+            }
+        }
+    }
+
+    if (showGifPicker) {
+        com.example.ui.GifPickerSheet(
+            customerId = myUserId ?: "anonymous",
+            onDismiss = { showGifPicker = false },
+            onPick = { gif ->
+                showGifPicker = false
+                sendGifMessage(gif)
+            }
+        )
+    }
     val replyKeyboardRows = remember(messages) { currentReplyKeyboard(messages) }
     val botScreenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
     val botExtraBottom = when {
@@ -2098,6 +2221,13 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                      })
                  }
                  MessageInputBar(
+                     onOpenGifPicker = {
+                         if (isUserBotChat || isBotManagerChat) {
+                             android.widget.Toast.makeText(context, "Bots don't support attachments yet", android.widget.Toast.LENGTH_SHORT).show()
+                         } else {
+                             showGifPicker = true
+                         }
+                     },
                      trailing = if (isBotChat && botStarted && replyKeyboardRows != null) ({
                          ReplyKeyboardToggle(active = showReplyKb, onClick = {
                              showReplyKb = !showReplyKb
@@ -2218,6 +2348,7 @@ java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("H
                               } catch(e: Exception) {}
                           }
 
+                         com.example.AppState.inFlightMessageIds.add(tempId)
                          coroutineScope.launch {
                            try {
                               val insertData = MessageInsert(
@@ -2227,13 +2358,13 @@ java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("H
                                  reply_to_id = replyMsg?.id
                               )
 
-                          val result =
-com.example.supabase.postgrest["messages"].insert(insertData) {
-                             select()
-                          }.decodeSingle<MessageRow>()
+                          // المعرّف يولّده التطبيق: إعادة الإرسال لا تنشئ نسخة ثانية عند الطرف الآخر
+                          val result = com.example.util.MessageSender.insert(com.example.supabase, insertData, tempId)
 
                               val timeStr = formatTimeSafe(result.created_at)
 
+                              // نخفي النسخة المؤقتة فورًا حتى لا يعيدها أي دمج قديم فتظهر الرسالة مرتين
+                              if (result.id != tempId) deletedMessageIds.add(tempId)
                               try {
                                  cachedMessageDao.insertMerged(
                                     com.example.cache.CachedMessage(
@@ -2250,7 +2381,7 @@ com.example.supabase.postgrest["messages"].insert(insertData) {
                                       media_group_id = result.media_group_id
                                     )
                                  )
-                                 cachedMessageDao.deleteMessageById(tempId)
+                                 if (result.id != tempId) cachedMessageDao.deleteMessageById(tempId)
                               } catch(e: Exception) {}
 
                               val alreadyExists = messages.any { it.id == result.id && it.id !=
@@ -2283,6 +2414,8 @@ MessageStatus.SENT, time = timeStr) else it
                                    android.widget.Toast.makeText(context, "حدث خطأ أثناء إرسال الرسالة: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                                }
                            }
+                        } finally {
+                           com.example.AppState.inFlightMessageIds.remove(tempId)
                         }
                      }
                    }
@@ -2446,6 +2579,7 @@ MessageStatus.SENT, time = timeStr) else it
                     for (pair in tempMsgsWithUris) {
                         val tempMsg = pair.first
                         val uri = pair.second
+                        com.example.AppState.inFlightMessageIds.add(tempMsg.id)
                         launch(kotlinx.coroutines.Dispatchers.IO) {
                             try {
                                 val calculatedRatio = tempMsg.attachments.firstOrNull()?.aspectRatio
@@ -2488,11 +2622,11 @@ MessageStatus.SENT, time = timeStr) else it
                                         media_aspect_ratio = calculatedRatio,
                                         media_group_id = batchId
                                     )
-                                    val result = com.example.supabase.postgrest["messages"].insert(insertData) {
-                                        select()
-                                    }.decodeSingle<MessageRow>()
+                                    val result = com.example.util.MessageSender.insert(com.example.supabase, insertData, tempMsg.id)
                                     
                                     val timeStr = formatTimeSafe(result.created_at)
+                                    // نخفي النسخة المؤقتة فورًا حتى لا يعيدها أي دمج قديم فيظهر المرفق مرتين
+                                    if (result.id != tempMsg.id) deletedMessageIds.add(tempMsg.id)
                                     val docMeta = docMetaByUri?.get(uri)
                                     val attachment = Attachment(messageId = result.id, type = type, url = signedUrl, thumbnailUrl = result.thumbnail_url, aspectRatio = calculatedRatio, fileName = docMeta?.first, fileSize = docMeta?.second)
                                     try {
@@ -2512,7 +2646,7 @@ MessageStatus.SENT, time = timeStr) else it
                                                 media_group_id = result.media_group_id
                                             )
                                         )
-                                        cachedMessageDao.deleteMessageById(tempMsg.id)
+                                        if (result.id != tempMsg.id) cachedMessageDao.deleteMessageById(tempMsg.id)
                                     } catch(e: Exception) {}
                                     
                                     val newMsg = MessageModel(
@@ -2562,6 +2696,8 @@ MessageStatus.SENT, time = timeStr) else it
                                         try { cachedMessageDao.updateMessageStatus(tempMsg.id, "FAILED") } catch(ex: Exception) {}
                                     }
                                 }
+                            } finally {
+                                com.example.AppState.inFlightMessageIds.remove(tempMsg.id)
                             }
                         }
                     }
@@ -4317,7 +4453,8 @@ fun MessageInputBar(
     editingMessage: MessageModel?,
     onCancelEdit: () -> Unit,
     leading: (@Composable () -> Unit)? = null,
-    trailing: (@Composable () -> Unit)? = null
+    trailing: (@Composable () -> Unit)? = null,
+    onOpenGifPicker: () -> Unit = {}
 ) {
     var isRecording by remember { mutableStateOf(false) }
     var isLocked by remember { mutableStateOf(false) }
@@ -4722,6 +4859,10 @@ fun MessageInputBar(
                 panelHeight = panelHeight,
                 onAttachmentSelected = { uris, type ->
                     onAttachmentSelected(uris, type)
+                    showAttachmentPanel = false
+                },
+                onOpenGifPicker = {
+                    onOpenGifPicker()
                     showAttachmentPanel = false
                 }
             )

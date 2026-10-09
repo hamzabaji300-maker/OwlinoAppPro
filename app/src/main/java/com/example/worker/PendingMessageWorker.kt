@@ -39,6 +39,15 @@ class PendingMessageWorker(
             var needsRetry = false
 
             for (msg in pendingMessages) {
+                // الشاشة ما زالت ترسل هذه الرسالة الآن: لا نرسلها مرة ثانية، نعيد الفحص لاحقًا
+                if (msg.id in com.example.AppState.inFlightMessageIds) {
+                    needsRetry = true
+                    continue
+                }
+                // قد تكون أُرسلت من الشاشة بعد أن أخذنا القائمة: نتأكد أنها ما زالت قيد الإرسال
+                val fresh = messageDao.getCachedMessageById(msg.id)
+                if (fresh == null || fresh.status != "SENDING") continue
+
                 try {
                     var finalMediaUrl: String? = null
                     var bucketName: String? = null
@@ -93,11 +102,14 @@ class PendingMessageWorker(
                         media_group_id = msg.media_group_id
                     )
 
-                    val result = supabase.postgrest["messages"].insert(insertData) {
-                        select()
-                    }.decodeSingle<MessageRow>()
+                    // نفس معرّف الرسالة المؤقتة: لو وصلت سابقًا لا تتكرر
+                    val result = com.example.util.MessageSender.insert(supabase, insertData, msg.id)
 
-                    messageDao.deleteMessageById(msg.id)
+                    if (result.id != msg.id) {
+                        messageDao.deleteMessageById(msg.id)
+                        // نخبر الشاشة المفتوحة (إن وُجدت) أن النسخة المؤقتة استُبدلت، حتى لا تظهر مرتين
+                        com.example.AppState.messageReplaced.tryEmit(msg.id)
+                    }
                     messageDao.insertCachedMessage(
                         com.example.cache.CachedMessage(
                             id = result.id,
@@ -126,7 +138,9 @@ class PendingMessageWorker(
             if (needsRetry) {
                 // حد أقصى للمحاولات حتى لا يبقى العامل يحاول للأبد
                 if (runAttemptCount >= 12) {
-                    pendingMessages.forEach { messageDao.updateMessageStatus(it.id, "FAILED") }
+                    pendingMessages
+                        .filter { it.id !in com.example.AppState.inFlightMessageIds }
+                        .forEach { messageDao.updateMessageStatus(it.id, "FAILED") }
                     Result.failure()
                 } else {
                     Result.retry()

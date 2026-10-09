@@ -13,6 +13,12 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 
 object AppState {
+    /** رسائل يرسلها التطبيق الآن من الشاشة (حتى لا يرسلها عامل الإرسال المؤجّل مرة ثانية). */
+    val inFlightMessageIds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** يُطلق عندما يستبدل عامل الإرسال المؤجّل رسالة مؤقتة برسالة حقيقية (معرّف المؤقتة). */
+    val messageReplaced = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 64)
+
     var currentChatId: String? = null
     var chatMessagesCache = java.util.concurrent.ConcurrentHashMap<String, List<com.example.ui.MessageModel>>()
 }

@@ -14,6 +14,11 @@ secrets {
     defaultPropertiesFileName = ".env.example"
 }
 
+// مفتاح Klipy لميزة GIF: يُقرأ من الملف klipy.key (بجانب مجلد app) أو من متغير البيئة KLIPY_API_KEY (للبناء الآلي)
+val klipyApiKey: String = (file("../klipy.key").takeIf { it.exists() }?.readText()?.trim()
+    ?: System.getenv("KLIPY_API_KEY")?.trim()
+    ?: "")
+
 android {
     namespace = "com.example"
     compileSdk = 35
@@ -25,6 +30,7 @@ android {
         versionCode = 47
         versionName = "build-47"
         vectorDrawables { useSupportLibrary = true }
+        buildConfigField("String", "KLIPY_API_KEY", "\"$klipyApiKey\"")
     }
 
     signingConfigs {
@@ -87,6 +93,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.7.0")
     implementation("com.composables:icons-lucide:1.1.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt:coil-gif:2.7.0") // لعرض الـ GIF المتحركة
     implementation("com.google.zxing:core:3.5.3")
     
     // CameraX

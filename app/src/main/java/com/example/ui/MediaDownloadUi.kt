@@ -90,13 +90,17 @@ fun DownloadableImage(
 
     val localPath = files[att.messageId]
     val isLocalUri = att.url.startsWith("content://") || att.url.startsWith("file://")
+    // الـ GIF الخارجية (Klipy) تُعرض مباشرة متحركة، دون زر تحميل
+    val isDirectRemote = att.url.contains("klipy.co")
     val dl = states[att.messageId]
 
     Box(modifier = modifier) {
-        if (localPath != null || isMe || isLocalUri) {
+        if (localPath != null || isMe || isLocalUri || isDirectRemote) {
             // Real picture
             val model: Any = if (localPath != null) {
                 File(localPath)
+            } else if (isDirectRemote) {
+                att.url
             } else {
                 rememberMediaSource(context, att.messageId, att.thumbnailUrl ?: att.url, isThumbnail = att.thumbnailUrl != null)
             }

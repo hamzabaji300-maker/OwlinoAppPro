@@ -312,7 +312,8 @@ fun AttachmentOption(icon: ImageVector, label: String, color: Color, onClick: ()
 @Composable
 fun AttachmentPickerPanel(
     panelHeight: Dp,
-    onAttachmentSelected: (List<Uri>, AttachmentType) -> Unit
+    onAttachmentSelected: (List<Uri>, AttachmentType) -> Unit,
+    onOpenGifPicker: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(AttachmentPickerTab.PHOTOS) }
@@ -496,6 +497,13 @@ fun AttachmentPickerPanel(
                     selectedAlbum = null
                     selectedUris.clear()
                 }
+            )
+            PickerTabButton(
+                icon = Icons.Outlined.Gif,
+                label = "GIF",
+                selected = false,
+                modifier = Modifier.weight(1f),
+                onClick = { onOpenGifPicker() }
             )
             PickerTabButton(
                 icon = Icons.Outlined.Description,
