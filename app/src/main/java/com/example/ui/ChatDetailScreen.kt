@@ -380,6 +380,31 @@ cachedChatDao.insertCachedChats(listOf(existingCachedChat.copy(unread_count = 0)
     var isOnline by remember { mutableStateOf(false) }
     var lastSeen by remember { mutableStateOf<String?>(null) }
     var otherUserId by remember { mutableStateOf<String?>(null) }
+    // --- مجموعة: أعضاء المجموعة وصورتها (لا نستعمل صورة أي عضو كصورة للمجموعة) ---
+    val isGroupChat = currentChat?.isGroup == true
+    var groupMembers by remember(chatId) { mutableStateOf<Map<String, Profile>>(emptyMap()) }
+    var groupAvatarUrl by remember(chatId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(chatId, isGroupChat) {
+        if (!isGroupChat) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            try {
+                val row = com.example.supabase.postgrest["chats"].select(io.github.jan.supabase.postgrest.query.Columns.list("id, type, title, avatar_url")) {
+                    filter { eq("id", chatId) }
+                }.decodeSingleOrNull<ChatRow>()
+                val ids = com.example.supabase.postgrest["chat_members"].select(io.github.jan.supabase.postgrest.query.Columns.list("chat_id, user_id")) {
+                    filter { eq("chat_id", chatId) }
+                }.decodeList<ChatMemberRow>().mapNotNull { it.user_id }
+                val profs = if (ids.isEmpty()) emptyList() else com.example.supabase.postgrest["profiles"].select {
+                    filter { isIn("id", ids) }
+                }.decodeList<Profile>()
+                withContext(Dispatchers.Main) {
+                    groupAvatarUrl = row?.avatar_url
+                    groupMembers = profs.associateBy { it.id }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { e.printStackTrace() }
+        }
+    }
     val blockedByMeSet by com.example.ui.BlockManager.blockedByMe.collectAsState()
     val blockedMeSet by com.example.ui.BlockManager.blockedMe.collectAsState()
     val amIBlocked = otherUserId?.let { it in blockedMeSet } == true
@@ -603,6 +628,7 @@ mutableStateOf<io.github.jan.supabase.realtime.RealtimeChannel?>(null) }
                 }
                 MessageModel(
                     id = it.id,
+                    senderId = it.sender_id,
                     text = it.content,
                     time = formatTimeSafe(it.created_at),
                     isMine = it.sender_id == currentUserId,
@@ -638,7 +664,12 @@ mutableStateOf<io.github.jan.supabase.realtime.RealtimeChannel?>(null) }
        try {
            val session = com.example.supabase.auth.currentSessionOrNull()
            val uid = session?.user?.id
-           if (uid != null && !isChannel) {
+           val __chatType = try {
+               com.example.supabase.postgrest["chats"].select(io.github.jan.supabase.postgrest.query.Columns.list("id, type")) {
+                   filter { eq("id", chatId) }
+               }.decodeSingleOrNull<ChatRow>()?.type
+           } catch (e: Exception) { null }
+           if (uid != null && !isChannel && __chatType != "group") {
                val members = com.example.supabase.postgrest["chat_members"].select() {
                    filter { eq("chat_id", chatId) }
                }.decodeList<ChatMemberRow>()
@@ -868,6 +899,7 @@ currentUserId) } }.decodeSingleOrNull<Profile>()
 
          MessageModel(
            id = row.id,
+           senderId = row.sender_id,
            text = row.content,
            time = timeStr,
            isMine = isMine,
@@ -1125,6 +1157,7 @@ record.media_url, thumbnailUrl = record.thumbnail_url, aspectRatio = record.medi
 record.reply_to_id } else null
                         val newMsg = MessageModel(
                           id = record.id,
+                          senderId = record.sender_id,
                           text = record.content,
                           time = timeStr,
                           isMine = isMine,
@@ -1329,15 +1362,15 @@ else it
               val limited = if (filtered.size > displayLimit) filtered.takeLast(displayLimit) else filtered
               val groupedLimited = groupImageMessages(limited)
               addAll(groupedLimited.mapIndexed { index, msg ->
-                  val isFirst = index == 0 || groupedLimited[index - 1].isMine != msg.isMine
-                  val isLast = index == groupedLimited.lastIndex || groupedLimited[index + 1].isMine != msg.isMine
-                  UiMessage(msg, isFirst, isLast)
+                  val isFirst = index == 0 || !sameSenderCluster(groupedLimited[index - 1], msg, isGroupChat)
+                  val isLast = index == groupedLimited.lastIndex || !sameSenderCluster(groupedLimited[index + 1], msg, isGroupChat)
+                  UiMessage(withSenderInfo(msg, isGroupChat, groupMembers), isFirst, isLast)
               })
           }
       }
   }
   
-  LaunchedEffect(activeFilter, searchQuery, messages, displayLimit) {
+  LaunchedEffect(activeFilter, searchQuery, messages, displayLimit, isGroupChat, groupMembers) {
       kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
           val filtered = if (searchQuery.isNotEmpty()) {
               messages.filter { it.text.contains(searchQuery, ignoreCase = true) }
@@ -1359,9 +1392,9 @@ else it
           val groupedLimited = groupImageMessages(limited)
              
           val uiList = groupedLimited.mapIndexed { index, msg ->
-              val isFirst = index == 0 || groupedLimited[index - 1].isMine != msg.isMine
-              val isLast = index == groupedLimited.lastIndex || groupedLimited[index + 1].isMine != msg.isMine
-              UiMessage(msg, isFirst, isLast)
+              val isFirst = index == 0 || !sameSenderCluster(groupedLimited[index - 1], msg, isGroupChat)
+              val isLast = index == groupedLimited.lastIndex || !sameSenderCluster(groupedLimited[index + 1], msg, isGroupChat)
+              UiMessage(withSenderInfo(msg, isGroupChat, groupMembers), isFirst, isLast)
           }
           
           kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -1754,6 +1787,7 @@ androidx.compose.ui.text.style.TextAlign.Center)
                    ChatMessages(
             messages = processedMessages,
             isChannel = isChannel,
+            isGroup = isGroupChat,
             hasPinnedBanner = pinnedMessages.isNotEmpty(),
             activeContextMenuMessageId = selectedMessageForContext?.id,
             listState = listState,
@@ -1885,7 +1919,7 @@ theirLastSeenRule, amIBlocked, haveIBlocked)
               val showOnline = canSeePresence && isActuallyOnline
               val showLastSeen = if (canSeePresence) lastSeen else null
               val canSeePhoto = PrivacyEvaluator.canSeeProfilePhoto(theirPhotoRule,amIBlocked, haveIBlocked)
-              val showAvatar = if (canSeePhoto) (otherUserProfile?.avatarUrl ?: currentChat?.avatarUrl) else null
+              val showAvatar = if (isGroupChat) (currentChat?.avatarUrl ?: groupAvatarUrl) else if (canSeePhoto) (otherUserProfile?.avatarUrl ?: currentChat?.avatarUrl) else null
 
              FloatingTopBar(
                  name = currentChat?.name ?: name, 
@@ -3698,6 +3732,7 @@ fun formatChatDateHeader(timestampMillis: Long, languageCode: String): String {
 @Composable
 fun ChatMessages(
    isChannel: Boolean = false,
+   isGroup: Boolean = false,
    messages: List<UiMessage>,
    hasPinnedBanner: Boolean = false,
    name: String,
@@ -3885,6 +3920,7 @@ fun ChatMessages(
                        } else {
                          MessageBubble(
                             msg = message,
+                            showSender = isGroup,
                             onImageClick = { clickedMsgId -> onImageClick(clickedMsgId) },
                             isFirstInCluster = isFirstInCluster,
                             isLastInCluster = isLastInCluster,
@@ -5015,6 +5051,18 @@ fun formatShortRelativeTime(timestamp: String?): String {
     } catch (e: Exception) {
         ""
     }
+}
+
+/** في المجموعات نفس العنقود = نفس المرسل (وليس فقط "أنا/غيري"). */
+fun sameSenderCluster(a: MessageModel, b: MessageModel, isGroup: Boolean): Boolean =
+    a.isMine == b.isMine && (!isGroup || a.senderId == b.senderId)
+
+/** يضيف اسم وصورة المرسل الحقيقيين لرسائل المجموعة. */
+fun withSenderInfo(msg: MessageModel, isGroup: Boolean, members: Map<String, Profile>): MessageModel {
+    if (!isGroup || msg.isMine) return msg
+    val p = members[msg.senderId] ?: return msg.copy(senderName = "")
+    val n = p.fullName?.takeIf { it.isNotBlank() } ?: p.username ?: msg.senderName
+    return msg.copy(senderName = n, senderAvatarUrl = p.avatarUrl)
 }
 
 @androidx.compose.runtime.Stable

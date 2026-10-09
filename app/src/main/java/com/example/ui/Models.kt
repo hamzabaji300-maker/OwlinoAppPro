@@ -126,6 +126,7 @@ data class MessageModel(
     val chatId: String = "", // Foreign key
     val senderId: String = "", // Foreign key
     val senderName: String = "", // for group chat UI
+    val senderAvatarUrl: String? = null, // group chat: صورة المرسل
     val text: String = "",
     val time: String,
     val timestamp: Long = System.currentTimeMillis(),

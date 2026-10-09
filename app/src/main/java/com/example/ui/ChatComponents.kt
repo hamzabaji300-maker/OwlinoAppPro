@@ -95,6 +95,7 @@ fun MessageMenu(msg: MessageModel, onAction: (String) -> Unit) {
 @Composable
 fun MessageBubble(
     msg: MessageModel,
+    showSender: Boolean = false,
     onImageClick: ((String) -> Unit)? = null,
     isFirstInCluster: Boolean,
     isLastInCluster: Boolean,
@@ -155,9 +156,32 @@ fun MessageBubble(
             }
             Spacer(Modifier.width(3.dp))
         }
+        val __senderSlot = showSender && !isMe
+        if (__senderSlot) {
+            // صورة المرسل على اليسار (تظهر عند آخر رسالة في العنقود، وبقية الرسائل تحافظ على نفس المحاذاة)
+            Box(modifier = Modifier.size(30.dp)) {
+                if (isLastInCluster) {
+                    if (!msg.senderAvatarUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = msg.senderAvatarUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape)
+                        )
+                    } else {
+                        val __ini = msg.senderName.trim().take(1).uppercase().ifEmpty { "?" }
+                        Box(
+                            modifier = Modifier.fillMaxSize().clip(CircleShape).background(Color(0xFF8E8E93)),
+                            contentAlignment = Alignment.Center
+                        ) { Text(__ini, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+        }
         Column(
             modifier = Modifier
-                .widthIn(min = 60.dp, max = if (msg.reactions.isNotEmpty()) screenWidth * 0.74f else screenWidth * 0.85f)
+                .widthIn(min = 60.dp, max = (if (msg.reactions.isNotEmpty()) screenWidth * 0.74f else screenWidth * 0.85f) - (if (__senderSlot) 38.dp else 0.dp))
                 .let { m ->
                     if (isEmojiOnlyMessage || !isLastInCluster) m else m.drawBehind {
                         val d = 1.dp.toPx()
@@ -204,6 +228,19 @@ fun MessageBubble(
                     )
                 }
         ) {
+            if (__senderSlot && isFirstInCluster && !isEmojiOnlyMessage && msg.senderName.isNotBlank()) {
+                val __nameColors = listOf(Color(0xFFE17076), Color(0xFFEDA86C), Color(0xFFA695E7), Color(0xFF7BC862), Color(0xFF6EC9CB), Color(0xFF65AADD), Color(0xFFEE7AAE))
+                val __nameColor = __nameColors[(msg.senderId.hashCode() and 0x7fffffff) % __nameColors.size]
+                Text(
+                    text = msg.senderName,
+                    color = __nameColor,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 0.dp)
+                )
+            }
             if (msg.replyTo != null) {
                 Row(
                     modifier = Modifier
