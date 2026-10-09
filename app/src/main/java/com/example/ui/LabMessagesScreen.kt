@@ -169,7 +169,8 @@ class LabChatState(val kind: LabKind) {
                     }
                 }
             }
-            val fileName = name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+            val picked = PickedFileMetaCache.map[uri.toString()]
+            val fileName = name ?: picked?.first ?: uri.lastPathSegment?.substringAfterLast('/') ?: "file"
             val id = UUID.randomUUID().toString()
             val dir = File(context.filesDir, "lab_media").apply { mkdirs() }
             val dest = File(dir, "${id}_$fileName")
@@ -214,7 +215,7 @@ private fun buildUi(list: List<MessageModel>, isGroup: Boolean): List<UiMessage>
 /** شاشة الرسائل: نفس تركيب ChatDetailScreen الأصلية (خلفية + قائمة + شريط علوي عائم + شريط إدخال). */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun LabMessagesScreen(state: LabChatState) {
+fun LabMessagesScreen(state: LabChatState, onBack: () -> Unit = {}) {
     val kind = state.kind
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -269,7 +270,7 @@ fun LabMessagesScreen(state: LabChatState) {
                             kind.isGroup -> "٣ أعضاء"
                             else -> null
                         },
-                        onBack = {},
+                        onBack = onBack,
                         menuExpanded = menuExpanded,
                         onMenuExpandedChange = { menuExpanded = it }
                     )
