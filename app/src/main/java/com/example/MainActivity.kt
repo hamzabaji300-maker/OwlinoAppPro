@@ -89,7 +89,11 @@ class MainActivity : ComponentActivity() {
                     if (open == null) {
                         HomeScreen(buttons) { openKind = it.name }
                     } else {
-                        LabMessagesScreen(state = states.getValue(open), onBack = { openKind = null })
+                        LabMessagesScreen(
+                            state = states.getValue(open),
+                            onBack = { openKind = null },
+                            forwardTargets = states.values.filter { it.kind != open }
+                        )
                     }
                 }
             }

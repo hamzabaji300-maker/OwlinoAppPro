@@ -469,44 +469,10 @@ fun AttachmentPickerPanel(
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surface)
     ) {
-        // Two tabs: Photos / Files — selecting one swaps the content below.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            PickerTabButton(
-                icon = Icons.Outlined.Image,
-                label = "الصور",
-                selected = selectedTab == AttachmentPickerTab.PHOTOS,
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    selectedTab = AttachmentPickerTab.PHOTOS
-                    selectedAlbum = null
-                    selectedUris.clear()
-                }
-            )
-            PickerTabButton(
-                icon = Icons.Outlined.Videocam,
-                label = "الفيديو",
-                selected = selectedTab == AttachmentPickerTab.VIDEOS,
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    selectedTab = AttachmentPickerTab.VIDEOS
-                    selectedAlbum = null
-                    selectedUris.clear()
-                }
-            )
-            PickerTabButton(
-                icon = Icons.Outlined.Description,
-                label = "الملفات",
-                selected = selectedTab == AttachmentPickerTab.FILES,
-                modifier = Modifier.weight(1f),
-                onClick = { selectedTab = AttachmentPickerTab.FILES }
-            )
+        // مقبض السحب العلوي (مثل تيليجرام)
+        Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(36.dp).height(4.dp).clip(CircleShape).background(Color.Gray.copy(alpha = 0.5f)))
         }
-        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.4f))
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (selectedTab) {
@@ -834,6 +800,53 @@ fun AttachmentPickerPanel(
                         }
                     }
                 }
+            }
+        }
+        // شريط التبويبات السفلي العائم (المعرض / الفيديو / ملف) بنمط تيليجرام
+        PickerBottomBar(selected = selectedTab) { tab ->
+            selectedTab = tab
+            if (tab != AttachmentPickerTab.FILES) {
+                selectedAlbum = null
+                selectedUris.clear()
+            }
+        }
+    }
+}
+
+@Composable
+private fun PickerBottomBar(selected: AttachmentPickerTab, onSelect: (AttachmentPickerTab) -> Unit) {
+    val theme = LocalSettingsTheme.current.theme
+    val accent = MaterialTheme.colorScheme.primary
+    val barBg = if (theme.isDark) Color(0xFF2B2B2B) else Color(0xFFF2F2F7)
+    val items = listOf(
+        Triple(AttachmentPickerTab.PHOTOS, Icons.Outlined.Image, "المعرض"),
+        Triple(AttachmentPickerTab.VIDEOS, Icons.Outlined.Videocam, "الفيديو"),
+        Triple(AttachmentPickerTab.FILES, Icons.Outlined.Description, "ملف")
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(36.dp))
+            .background(barBg)
+            .padding(6.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items.forEach { (tab, icon, label) ->
+            val isSel = tab == selected
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(if (isSel) accent.copy(alpha = 0.18f) else Color.Transparent)
+                    .clickable { onSelect(tab) }
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(icon, contentDescription = label, tint = if (isSel) accent else theme.textSecondary, modifier = Modifier.size(26.dp))
+                Spacer(Modifier.height(2.dp))
+                Text(label, color = if (isSel) accent else theme.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
             }
         }
     }

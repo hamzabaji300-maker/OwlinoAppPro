@@ -4,8 +4,16 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import com.example.ui.i18n.LocalTranslation
+import com.example.ui.i18n.rememberExtraStrings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -67,6 +75,33 @@ class LabChatState(val kind: LabKind) {
     var botStarted by mutableStateOf(kind != LabKind.BOT)
     var showReplyKb by mutableStateOf(true)
     var showBotMenu by mutableStateOf(false)
+    var editingMessage by mutableStateOf<MessageModel?>(null)
+    var selected by mutableStateOf<Set<String>>(emptySet())
+    var deleteIds by mutableStateOf<Set<String>?>(null)
+    var pinDialog by mutableStateOf<MessageModel?>(null)
+    var forwardMsg by mutableStateOf<MessageModel?>(null)
+    var toast by mutableStateOf<ToastNotification?>(null)
+    var highlightedId by mutableStateOf<String?>(null)
+
+    fun showToast(text: String, type: ToastType) { toast = ToastNotification(System.currentTimeMillis(), text, type) }
+
+    /** استقبال رسالة معاد توجيهها من شاشة أخرى. */
+    fun receiveForward(text: String, attachments: List<Attachment>) {
+        messages += labMsg(kind, text, true, attachments = attachments.map { it.copy(messageId = it.messageId) })
+    }
+
+    /** نفس منطق الأصل: تفاعل واحد لكل رسالة، والضغط على نفس الإيموجي يزيله. */
+    fun react(m: MessageModel, reaction: String) {
+        val i = messages.indexOfFirst { it.id == m.id }
+        if (i < 0) return
+        val cur = messages[i]
+        messages[i] = cur.copy(reactions = if (reaction in cur.reactions) emptyList() else listOf(reaction))
+    }
+
+    fun update(m: MessageModel, f: (MessageModel) -> MessageModel) {
+        val i = messages.indexOfFirst { it.id == m.id }
+        if (i >= 0) messages[i] = f(messages[i])
+    }
 
     val botCommands = listOf(
         BotManager.Command("/start", "بدء المحادثة"),
@@ -125,6 +160,13 @@ class LabChatState(val kind: LabKind) {
     fun sendText(scope: CoroutineScope) {
         val t = text.trim()
         if (t.isEmpty()) return
+        val editing = editingMessage
+        if (editing != null) {
+            update(editing) { it.copy(text = t, isEdited = true) }
+            editingMessage = null
+            text = ""
+            return
+        }
         val reply = replyingTo
         text = ""
         replyingTo = null
@@ -215,18 +257,33 @@ private fun buildUi(list: List<MessageModel>, isGroup: Boolean): List<UiMessage>
 /** شاشة الرسائل: نفس تركيب ChatDetailScreen الأصلية (خلفية + قائمة + شريط علوي عائم + شريط إدخال). */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun LabMessagesScreen(state: LabChatState, onBack: () -> Unit = {}) {
+fun LabMessagesScreen(
+    state: LabChatState,
+    onBack: () -> Unit = {},
+    forwardTargets: List<LabChatState> = emptyList()
+) {
     val kind = state.kind
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val uriHandler = LocalUriHandler.current
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val listState = rememberLazyListState()
+    val extra = rememberExtraStrings()
+    val theme = LocalSettingsTheme.current.theme
     var menuExpanded by remember { mutableStateOf(false) }
     var contextMsg by remember { mutableStateOf<MessageModel?>(null) }
+    var contextFull by remember { mutableStateOf(false) }
 
     val snapshot = state.messages.toList()
     val uiMessages = remember(snapshot) { buildUi(snapshot, kind.isGroup) }
     val replyKeyboardRows = remember(snapshot) { currentReplyKeyboard(snapshot) }
+    val pinned = snapshot.filter { it.isPinned }
+    var pinIndex by remember { mutableStateOf(0) }
+    val isSelectionMode = state.selected.isNotEmpty()
+
+    BackHandler(enabled = isSelectionMode) { state.selected = emptySet() }
 
     Box(modifier = Modifier.fillMaxSize()) {
         ChatWallpaper()
@@ -237,19 +294,30 @@ fun LabMessagesScreen(state: LabChatState, onBack: () -> Unit = {}) {
                         messages = uiMessages,
                         isChannel = kind.isChannel,
                         isGroup = kind.isGroup,
+                        hasPinnedBanner = pinned.isNotEmpty(),
                         name = kind.title,
                         isNetworkFetchComplete = true,
                         isTyping = state.typing,
-                        onReactionSelected = { m, r ->
-                            val i = state.messages.indexOfFirst { it.id == m.id }
-                            if (i >= 0) {
-                                val cur = state.messages[i]
-                                state.messages[i] = cur.copy(reactions = if (r in cur.reactions) cur.reactions - r else cur.reactions + r)
+                        listState = listState,
+                        selectedMessages = state.selected,
+                        isSelectionMode = isSelectionMode,
+                        onToggleSelect = { id -> state.selected = if (id in state.selected) state.selected - id else state.selected + id },
+                        highlightedMessageId = state.highlightedId,
+                        onHighlightMessage = { state.highlightedId = it },
+                        onReactionSelected = { m, r -> state.react(m, r) },
+                        onMoreClick = {},
+                        onLongClick = { m, bounds, heavy ->
+                            if (!isSelectionMode) {
+                                contextMsg = m
+                                contextFull = heavy
+                                // نفس سلوك الأصل: أعلى الرسالة يصل لثلث الشاشة العلوي لتظهر كاملة فوق القائمة
+                                val targetTopPx = with(density) { configuration.screenHeightDp.dp.toPx() } * 0.32f
+                                if (bounds.top > targetTopPx) {
+                                    scope.launch { listState.animateScrollBy(bounds.top - targetTopPx) }
+                                }
                             }
                         },
-                        onMoreClick = {},
-                        onLongClick = { m, _, _ -> contextMsg = m },
-                        onReply = { state.replyingTo = it },
+                        onReply = { if (!isSelectionMode) state.replyingTo = it },
                         modifier = Modifier.fillMaxSize(),
                         onInlineButtonClick = { _, b ->
                             if (b.url != null) uriHandler.openUri(b.url)
@@ -259,21 +327,59 @@ fun LabMessagesScreen(state: LabChatState, onBack: () -> Unit = {}) {
                             }
                         }
                     )
-                    FloatingTopBar(
-                        name = kind.title,
-                        isChannel = kind.isChannel,
-                        subscriberCount = if (kind.isChannel) 12400 else null,
-                        isTyping = state.typing,
-                        isOnline = kind == LabKind.PRIVATE,
-                        statusOverride = when {
-                            kind.isBot -> "بوت"
-                            kind.isGroup -> "٣ أعضاء"
-                            else -> null
-                        },
-                        onBack = onBack,
-                        menuExpanded = menuExpanded,
-                        onMenuExpandedChange = { menuExpanded = it }
-                    )
+                    Column(modifier = Modifier.align(Alignment.TopCenter)) {
+                        if (isSelectionMode) {
+                            SelectionTopBar(
+                                selectedCount = state.selected.size,
+                                onClearSelection = { state.selected = emptySet() },
+                                onCopy = {
+                                    val txt = snapshot.filter { it.id in state.selected }.joinToString("\n") { it.text }
+                                    clipboard.setText(AnnotatedString(txt))
+                                    state.selected = emptySet()
+                                    state.showToast("Message copied to clipboard", ToastType.COPY)
+                                },
+                                onDelete = { state.deleteIds = state.selected }
+                            )
+                        } else {
+                            FloatingTopBar(
+                                name = kind.title,
+                                isChannel = kind.isChannel,
+                                subscriberCount = if (kind.isChannel) 12400 else null,
+                                isTyping = state.typing,
+                                isOnline = kind == LabKind.PRIVATE,
+                                statusOverride = when {
+                                    kind.isBot -> "بوت"
+                                    kind.isGroup -> "٣ أعضاء"
+                                    else -> null
+                                },
+                                onBack = onBack,
+                                menuExpanded = menuExpanded,
+                                onMenuExpandedChange = { menuExpanded = it }
+                            )
+                            if (pinned.isNotEmpty()) {
+                                val cur = pinned[pinIndex % pinned.size]
+                                PinnedMessageBar(
+                                    message = cur,
+                                    count = pinned.size,
+                                    currentIndex = pinIndex % pinned.size,
+                                    onUnpin = {
+                                        state.update(cur) { it.copy(isPinned = false) }
+                                        state.showToast("Message unpinned", ToastType.UNPIN)
+                                    },
+                                    onClick = {
+                                        val idx = uiMessages.indexOfFirst { it.msg.id == cur.id }
+                                        if (idx >= 0) scope.launch {
+                                            listState.animateScrollToItem(idx)
+                                            state.highlightedId = cur.id
+                                            delay(1500)
+                                            state.highlightedId = null
+                                        }
+                                        pinIndex++
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Column(modifier = Modifier.navigationBarsPadding()) {
@@ -298,8 +404,8 @@ fun LabMessagesScreen(state: LabChatState, onBack: () -> Unit = {}) {
                             onAttachmentSelected = { uris, type -> state.sendAttachments(context, scope, uris, type) },
                             replyingTo = state.replyingTo,
                             onCancelReply = { state.replyingTo = null },
-                            editingMessage = null,
-                            onCancelEdit = {},
+                            editingMessage = state.editingMessage,
+                            onCancelEdit = { state.editingMessage = null; state.text = "" },
                             leading = if (kind.isBot) ({
                                 BotMenuPill(open = state.showBotMenu, onClick = { state.showBotMenu = !state.showBotMenu })
                             }) else null,
@@ -319,16 +425,102 @@ fun LabMessagesScreen(state: LabChatState, onBack: () -> Unit = {}) {
         }
     }
 
+    // ===== القائمة الأصلية عند الضغط المطوّل =====
     contextMsg?.let { m ->
-        AlertDialog(
+        MessageContextMenuOverlay(
+            message = m,
+            showFullMenu = contextFull,
+            isChannel = kind.isChannel,
             onDismissRequest = { contextMsg = null },
+            onReactionSelected = { r -> state.react(m, r); contextMsg = null },
+            onReply = { state.replyingTo = m },
+            onEdit = { state.editingMessage = m; state.text = m.text },
+            onCopy = {
+                clipboard.setText(AnnotatedString(m.text))
+                state.showToast("Message copied to clipboard", ToastType.COPY)
+            },
+            onDelete = { state.deleteIds = setOf(m.id) },
+            onSelect = { state.selected = setOf(m.id) },
+            onForward = { state.forwardMsg = m },
+            onPin = {
+                if (!m.isPinned) state.pinDialog = m
+                else {
+                    state.update(m) { it.copy(isPinned = false) }
+                    state.showToast("Message unpinned", ToastType.UNPIN)
+                }
+            },
+            onSave = {
+                val now = !m.isSaved
+                state.update(m) { it.copy(isSaved = now) }
+                state.showToast(if (now) "Message saved" else "Message unsaved", if (now) ToastType.SAVE else ToastType.UNSAVE)
+            },
+            onMoreClick = { contextMsg = null }
+        )
+    }
+
+    // ===== حوار الحذف الأصلي =====
+    state.deleteIds?.let { ids ->
+        val delMsgs = snapshot.filter { it.id in ids }
+        val allMine = delMsgs.isNotEmpty() && delMsgs.all { it.isMine }
+        AppConfirmDialog(
+            title = if (ids.size == 1) extra.msgDeleteTitle else String.format(extra.msgDeleteTitleFmt, ids.size),
+            message = if (ids.size == 1) extra.msgDeleteBody else String.format(extra.msgDeleteBodyFmt, ids.size),
+            checkboxLabel = if (allMine) (if (kind.isChannel || kind.isGroup) extra.msgAlsoDeleteEveryone else String.format(extra.msgAlsoDeleteForFmt, kind.title)) else null,
+            confirmText = extra.dlgDelete,
+            cancelText = extra.dlgCancel,
+            onDismiss = { state.deleteIds = null },
+            onConfirm = { _ ->
+                state.messages.removeAll { it.id in ids }
+                state.deleteIds = null
+                state.selected = emptySet()
+                state.showToast(extra.msgDeletedToast, ToastType.COPY)
+            }
+        )
+    }
+
+    // ===== حوار التثبيت الأصلي =====
+    state.pinDialog?.let { pm ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { state.pinDialog = null },
+            containerColor = SettingsColors.surface,
+            title = { Text(extra.pinMessageTitle, color = SettingsColors.textPrimary) },
+            text = { Text(extra.pinMessageTitle, color = SettingsColors.textSecondary) },
             confirmButton = {
-                Column {
-                    TextButton(onClick = { state.replyingTo = m; contextMsg = null }) { Text("رد") }
-                    if (m.text.isNotBlank()) TextButton(onClick = { clipboard.setText(AnnotatedString(m.text)); contextMsg = null }) { Text("نسخ") }
-                    TextButton(onClick = { state.messages.removeAll { it.id == m.id }; contextMsg = null }) { Text("حذف", color = Color.Red) }
+                Column(horizontalAlignment = Alignment.End) {
+                    androidx.compose.material3.TextButton(onClick = {
+                        state.pinDialog = null
+                        state.update(pm) { it.copy(isPinned = true) }
+                        state.showToast("Message pinned", ToastType.PIN)
+                    }) { Text(extra.pinForMeOnly, color = SettingsColors.blueAccent) }
+                    androidx.compose.material3.TextButton(onClick = {
+                        state.pinDialog = null
+                        state.update(pm) { it.copy(isPinned = true) }
+                        state.showToast("Message pinned", ToastType.PIN)
+                    }) { Text(String.format(extra.pinForBothFmt, kind.title), color = SettingsColors.blueAccent) }
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { state.pinDialog = null }) {
+                    Text(LocalTranslation.current.cancel, color = SettingsColors.textSecondary)
                 }
             }
         )
     }
+
+    // ===== إعادة التوجيه: إلى الشاشات الأخرى فعليًا =====
+    state.forwardMsg?.let { fm ->
+        LabForwardDialog(
+            primaryColor = MaterialTheme.colorScheme.primary,
+            targets = forwardTargets.map { it.kind.title },
+            onPick = { i ->
+                val target = forwardTargets[i]
+                target.receiveForward(fm.text, fm.attachments)
+                state.forwardMsg = null
+                state.showToast("Forwarded to ${target.kind.title}", ToastType.INFO)
+            },
+            onDismiss = { state.forwardMsg = null }
+        )
+    }
+
+    LabToastHost(toastNotification = state.toast, onClear = { state.toast = null })
 }
