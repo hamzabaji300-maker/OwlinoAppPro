@@ -3,4 +3,5 @@
     <external-path name="owlino_public" path="." />
     <external-files-path name="owlino_private" path="." />
     <cache-path name="cache" path="." />
+    <files-path name="lab_files" path="." />
 </paths>
