@@ -250,11 +250,15 @@ fun MessageBubble(
             if (isEmojiOnlyMessage) {
                 val units = emojiOnlySequence!!
                 Column(modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
+                    // يتحرك مرة واحدة عند الإرسال فقط، وبعدها ثابت. الضغط عليه يحرّكه لثوانٍ ثم يتوقف
+                    val autoPlayEmoji = remember(msg.timestamp, msg.text) {
+                        EmojiPlayRegistry.shouldAutoPlay(msg.timestamp, msg.text)
+                    }
                     if (units.size == 1) {
                         // إيموجي وحد -> كبير (100dp)
                         val path = NotoEmojiMap.remoteUrlFor(units[0])
                         if (path != null) {
-                            LottieEmojiReaction(url = path, size = 100.dp)
+                            LottieEmojiReaction(url = path, size = 100.dp, tapToPlay = true, autoPlayOnce = autoPlayEmoji)
                         }
                     } else {
                         // حتى 5 إيموجيات -> متحركة. أكثر من 5 -> ثابتة (من نفس الرابط) بلا فقاعة
@@ -266,7 +270,13 @@ fun MessageBubble(
                                 rowUnits.forEach { e ->
                                     val path = NotoEmojiMap.remoteUrlFor(e)
                                     if (path != null) {
-                                        LottieEmojiReaction(url = path, size = emojiSize, animate = animated)
+                                        LottieEmojiReaction(
+                                            url = path,
+                                            size = emojiSize,
+                                            animate = false,
+                                            tapToPlay = animated,
+                                            autoPlayOnce = animated && autoPlayEmoji
+                                        )
                                     }
                                 }
                             }
@@ -1428,19 +1438,19 @@ fun FileBubbleContent(
             }
             // عرض ثابت صغير مثل فقاعة الرسالة الصوتية (200dp)، بدل أن تتمدد على كل الشاشة
             .width(if (caption.isBlank()) 220.dp else 260.dp)
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(34.dp)
                     .clip(CircleShape)
                     .background(if (isMe) Color.White else Color(0xFF3390EC)),
                 contentAlignment = Alignment.Center
             ) {
                 if (isUploading) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(38.dp),
+                        modifier = Modifier.size(32.dp),
                         color = if (isMe) Color(0xFFC78B22) else Color.White,
                         strokeWidth = 2.5.dp
                     )
@@ -1449,7 +1459,7 @@ fun FileBubbleContent(
                         contentDescription = "إلغاء",
                         tint = if (isMe) Color(0xFFC78B22) else Color.White,
                         modifier = Modifier
-                            .size(18.dp)
+                            .size(16.dp)
                             .let { if (onCancelUpload != null) it.clickable { onCancelUpload() } else it }
                     )
                 } else if (isFailed) {
@@ -1460,38 +1470,62 @@ fun FileBubbleContent(
                         modifier = Modifier.size(22.dp)
                     )
                 } else if (canDownloadDoc && fileDl is MediaDlState.Downloading) {
-                    MediaProgressRing(progress = fileDl.progress, modifier = Modifier.size(38.dp), color = Color.White)
-                    Icon(Icons.Filled.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    MediaProgressRing(progress = fileDl.progress, modifier = Modifier.size(32.dp), color = Color.White)
+                    Icon(Icons.Filled.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                 } else if (canDownloadDoc) {
                     Icon(
                         if (fileDl is MediaDlState.Failed) Icons.Filled.Refresh else Icons.Filled.Download,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 } else {
                     Icon(
                         Icons.Outlined.InsertDriveFile,
                         contentDescription = null,
                         tint = if (isMe) Color(0xFFC78B22) else Color.White,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = fileName,
                     color = textColor,
                     fontSize = 14.sp,
+                    lineHeight = 17.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                when {
-                    isUploading -> Text(text = "جاري الرفع...", color = timeColor, fontSize = 11.sp)
-                    isFailed -> Text(text = "فشل الإرسال", color = Color(0xFFE53935), fontSize = 11.sp)
-                    subtitle.isNotBlank() -> Text(text = subtitle, color = timeColor, fontSize = 11.sp)
+                // سطر واحد: الحجم/الحالة في اليسار، والوقت وعلامة الإرسال في اليمين (بدل سطر منفصل)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val statusText = when {
+                        isUploading -> "جاري الرفع..."
+                        isFailed -> "فشل الإرسال"
+                        else -> subtitle
+                    }
+                    Text(
+                        text = statusText,
+                        color = if (isFailed) Color(0xFFE53935) else timeColor,
+                        fontSize = 11.sp,
+                        lineHeight = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (caption.isBlank()) {
+                        Text(msg.time, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                        MessageIndicators(
+                            isMe = isMe,
+                            status = msg.status,
+                            isRead = false,
+                            isSaved = msg.isSaved,
+                            isPinned = msg.isPinned,
+                            isImageOverlay = false
+                        )
+                    }
                 }
             }
         }
@@ -1506,19 +1540,21 @@ fun FileBubbleContent(
                 modifier = Modifier.padding(top = 6.dp, start = 2.dp)
             )
         }
-        Row(
-            modifier = Modifier.align(Alignment.End),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(msg.time, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = timeColor)
-            MessageIndicators(
-                isMe = isMe,
-                status = msg.status,
-                isRead = false,
-                isSaved = msg.isSaved,
-                isPinned = msg.isPinned,
-                isImageOverlay = false
-            )
+        if (caption.isNotBlank()) {
+            Row(
+                modifier = Modifier.align(Alignment.End),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(msg.time, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                MessageIndicators(
+                    isMe = isMe,
+                    status = msg.status,
+                    isRead = false,
+                    isSaved = msg.isSaved,
+                    isPinned = msg.isPinned,
+                    isImageOverlay = false
+                )
+            }
         }
     }
 }

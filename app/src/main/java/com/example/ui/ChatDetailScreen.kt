@@ -4690,6 +4690,17 @@ fun MessageInputBar(
                         )
                     }
                     trailing?.invoke()
+                    // زر GIF: نص فقط بلا خلفية، بجانب زر الإرسال
+                    Text(
+                        text = "GIF",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onOpenGifPicker() }
+                            .padding(horizontal = 8.dp, vertical = 8.dp)
+                    )
                 }
                 
                 // Send / Mic Button
@@ -4861,10 +4872,6 @@ fun MessageInputBar(
                     onAttachmentSelected(uris, type)
                     showAttachmentPanel = false
                 },
-                onOpenGifPicker = {
-                    onOpenGifPicker()
-                    showAttachmentPanel = false
-                }
             )
         }
     }

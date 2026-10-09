@@ -17,6 +17,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.FilterChip
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import com.example.util.GifFavorites
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -65,6 +75,13 @@ fun GifPickerSheet(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val gridState = rememberLazyGridState()
+    val context = LocalContext.current
+    // المفضلة تظهر أولًا إن وُجدت (بدون بحث)، وإلا يظهر الرائج
+    var showFavorites by remember {
+        GifFavorites.ensureLoaded(context)
+        mutableStateOf(GifFavorites.items.value.isNotEmpty())
+    }
+    val favorites by GifFavorites.items.collectAsState()
 
     suspend fun load(reset: Boolean) {
         if (!GifClient.isConfigured) {
@@ -92,7 +109,8 @@ fun GifPickerSheet(
     }
 
     // بحث بعد توقف الكتابة (يوفّر طلبات المفتاح التجريبي: 100 طلب/ساعة)
-    LaunchedEffect(query) {
+    LaunchedEffect(query, showFavorites) {
+        if (showFavorites && query.isBlank()) return@LaunchedEffect
         if (query.isNotEmpty()) delay(500)
         load(true)
     }
@@ -103,8 +121,8 @@ fun GifPickerSheet(
             last >= gifs.size - 6
         }
     }
-    LaunchedEffect(nearEnd, hasNext, loading) {
-        if (nearEnd && hasNext && !loading && gifs.isNotEmpty()) load(false)
+    LaunchedEffect(nearEnd, hasNext, loading, showFavorites) {
+        if (!showFavorites && nearEnd && hasNext && !loading && gifs.isNotEmpty()) load(false)
     }
 
     ModalBottomSheet(
@@ -120,7 +138,10 @@ fun GifPickerSheet(
         ) {
             OutlinedTextField(
                 value = query,
-                onValueChange = { query = it },
+                onValueChange = {
+                    query = it
+                    if (it.isNotBlank()) showFavorites = false
+                },
                 singleLine = true,
                 placeholder = { Text("Search KLIPY") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
@@ -128,7 +149,24 @@ fun GifPickerSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = showFavorites,
+                    onClick = { showFavorites = true; query = "" },
+                    label = { Text("المفضلة (${favorites.size})") }
+                )
+                FilterChip(
+                    selected = !showFavorites,
+                    onClick = { showFavorites = false },
+                    label = { Text("الرائج") }
+                )
+            }
+
             Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp)) {
+                val shown = if (showFavorites) favorites else gifs
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
                     state = gridState,
@@ -136,7 +174,8 @@ fun GifPickerSheet(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(gifs, key = { it.id }) { gif ->
+                    items(shown, key = { it.id }) { gif ->
+                        val isFav = favorites.any { it.id == gif.id }
                         val ratio = (gif.aspectRatio ?: 1.3f).coerceIn(0.6f, 2.2f)
                         Box(
                             modifier = Modifier
@@ -152,14 +191,35 @@ fun GifPickerSheet(
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
                             )
+                            // نجمة المفضلة: اضغطها لإضافة الـ GIF للمفضلة أو إزالتها
+                            Icon(
+                                imageVector = if (isFav) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                                contentDescription = if (isFav) "إزالة من المفضلة" else "إضافة للمفضلة",
+                                tint = if (isFav) Color(0xFFFFC107) else Color.White,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(4.dp)
+                                    .size(30.dp)
+                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                                    .clickable { GifFavorites.toggle(context, gif) }
+                                    .padding(5.dp)
+                            )
                         }
                     }
                 }
-                if (loading && gifs.isEmpty()) {
+                if (showFavorites && favorites.isEmpty()) {
+                    Text(
+                        text = "لا توجد مفضلة بعد.\nاضغط النجمة على أي GIF لإضافته هنا.",
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Center).padding(24.dp)
+                    )
+                }
+                if (!showFavorites && loading && gifs.isEmpty()) {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
                 val err = error
-                if (err != null && gifs.isEmpty() && !loading) {
+                if (!showFavorites && err != null && gifs.isEmpty() && !loading) {
                     Text(
                         text = err,
                         textAlign = TextAlign.Center,

@@ -499,13 +499,6 @@ fun AttachmentPickerPanel(
                 }
             )
             PickerTabButton(
-                icon = Icons.Outlined.Gif,
-                label = "GIF",
-                selected = false,
-                modifier = Modifier.weight(1f),
-                onClick = { onOpenGifPicker() }
-            )
-            PickerTabButton(
                 icon = Icons.Outlined.Description,
                 label = "الملفات",
                 selected = selectedTab == AttachmentPickerTab.FILES,

@@ -3,6 +3,7 @@ package com.example.ui
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
@@ -115,6 +116,20 @@ private fun StaticNotoEmoji(url: String, size: Dp, onFailed: (Throwable?) -> Uni
  * animate = false -> نفس الملف لكن يظهر ثابت كصورة مخزّنة (سلس جداً مع التمرير).
  * إذا الإيموجي ما عندوش ملف (أو ما فيه نت) يرجع لعرضه كنص عادي بدل ما يختفي.
  */
+/**
+ * يسجّل الإيموجيات التي تحرّكت تلقائيًا في هذه الجلسة، حتى لا تتحرك مرتين
+ * ولا تتحرك الرسائل القديمة عند التمرير (الشاشة تبقى خفيفة).
+ */
+object EmojiPlayRegistry {
+    private val played: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /** true فقط للرسالة الحديثة جدًا (أُرسلت/وصلت الآن) ولم تتحرك من قبل. */
+    fun shouldAutoPlay(timestamp: Long, text: String): Boolean {
+        if (System.currentTimeMillis() - timestamp > 15_000L) return false
+        return played.add("$timestamp|$text")
+    }
+}
+
 @Composable
 fun LottieEmojiReaction(
     url: String,
@@ -122,18 +137,41 @@ fun LottieEmojiReaction(
     modifier: Modifier = Modifier,
     loopForever: Boolean = true,
     animate: Boolean = true,
+    // وضع الرسائل: ثابت دائمًا، يتحرك مرة واحدة عند الإرسال (autoPlayOnce)، وعند الضغط عليه لثوانٍ ثم يتوقف
+    tapToPlay: Boolean = false,
+    autoPlayOnce: Boolean = false,
 ) {
     val info = remember(url) { buildEmojiUrlInfo(url) }
     var index by remember(url) { mutableIntStateOf(nextUsableIndex(info.candidates, 0)) }
+    var playing by remember(url) { mutableStateOf(tapToPlay && autoPlayOnce) }
+    var tapped by remember(url) { mutableStateOf(false) }
+    val showAnimation = if (tapToPlay) playing else animate
 
-    Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .let {
+                if (tapToPlay) {
+                    it.clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        if (!playing) {
+                            tapped = true
+                            playing = true
+                        }
+                    }
+                } else it
+            },
+        contentAlignment = Alignment.Center
+    ) {
         if (index >= info.candidates.size) {
             if (info.fallbackText.isNotEmpty()) {
                 Text(text = info.fallbackText, fontSize = (size.value * 0.7f).sp)
             }
         } else {
             val currentUrl = info.candidates[index]
-            if (!animate) {
+            if (!showAnimation) {
                 StaticNotoEmoji(currentUrl, size) { err ->
                     if (err?.message?.contains("404") == true) {
                         failedEmojiUrls.add(currentUrl)
@@ -143,12 +181,28 @@ fun LottieEmojiReaction(
             } else {
                 val result = rememberLottieComposition(LottieCompositionSpec.Url(currentUrl))
                 val composition by result
+                // وضع الرسائل: دورة واحدة عند الإرسال، ودورتان عند الضغط، ثم يرجع ثابتًا
+                val iterationsCount = when {
+                    !tapToPlay -> if (loopForever) LottieConstants.IterateForever else 1
+                    tapped -> 2
+                    else -> 1
+                }
                 val progress by animateLottieCompositionAsState(
                     composition = composition,
-                    iterations = if (loopForever) LottieConstants.IterateForever else 1,
+                    iterations = iterationsCount,
                     isPlaying = true,
                     speed = 1f,
                 )
+                if (tapToPlay) {
+                    LaunchedEffect(composition, tapped) {
+                        val c = composition
+                        if (c != null) {
+                            val total = (c.duration * iterationsCount).toLong().coerceIn(1200L, 6000L)
+                            kotlinx.coroutines.delay(total + 150L)
+                            playing = false
+                        }
+                    }
+                }
 
                 LaunchedEffect(currentUrl, result.isFailure) {
                     if (result.isFailure) {
