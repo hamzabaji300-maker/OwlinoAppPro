@@ -150,7 +150,7 @@ fun MessageBubble(
                 msg.reactions.forEach { emoji ->
                     val reactionUrl = NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji))
                     if (reactionUrl != null) {
-                        LottieEmojiReaction(url = reactionUrl, size = 34.dp, tapToPlay = true, playKey = "react|$emoji")
+                        LottieEmojiReaction(url = reactionUrl, size = 34.dp)
                     }
                 }
             }
@@ -592,7 +592,7 @@ fun MessageBubble(
                 msg.reactions.forEach { emoji ->
                     val reactionUrl = NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji))
                     if (reactionUrl != null) {
-                        LottieEmojiReaction(url = reactionUrl, size = 34.dp, tapToPlay = true, playKey = "react|$emoji")
+                        LottieEmojiReaction(url = reactionUrl, size = 34.dp)
                     }
                 }
             }
@@ -675,7 +675,7 @@ fun ChannelPostCard(
                         topFour.forEach { reaction ->
                             val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
                             if (url != null) {
-                                LottieEmojiReaction(url = url, size = 17.dp, tapToPlay = true, playKey = "react|${reaction.emoji}")
+                                LottieEmojiReaction(url = url, size = 17.dp)
                             } else {
                                 Text(reaction.emoji, fontSize = 13.sp)
                             }
@@ -698,7 +698,7 @@ fun ChannelPostCard(
                         msg.reactions.forEach { emoji ->
                             val myUrl = remember(emoji) { NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji)) }
                             if (myUrl != null) {
-                                LottieEmojiReaction(url = myUrl, size = 16.dp, tapToPlay = true, playKey = "react|$emoji")
+                                LottieEmojiReaction(url = myUrl, size = 16.dp)
                             }
                         }
                     }
@@ -756,7 +756,7 @@ fun ReactionBreakdownDialog(
                             }
                             val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
                             if (url != null) {
-                                LottieEmojiReaction(url = url, size = 20.dp, loopForever = false)
+                                LottieEmojiReaction(url = url, size = 20.dp)
                             } else {
                                 Text(reaction.emoji, fontSize = 16.sp)
                             }
@@ -1296,9 +1296,7 @@ private fun androidx.compose.ui.text.AnnotatedString.Builder.appendTextWithEmoji
                 if (url != null) {
                     LottieEmojiReaction(
                         url = url,
-                        size = emojiSizeDp,
-                        tapToPlay = true,
-                        playKey = "inline|$g"
+                        size = emojiSizeDp
                     )
                 } else {
                     Text(g, fontSize = emojiSize)

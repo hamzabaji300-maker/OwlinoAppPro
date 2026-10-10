@@ -28,6 +28,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -469,44 +470,10 @@ fun AttachmentPickerPanel(
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surface)
     ) {
-        // Two tabs: Photos / Files — selecting one swaps the content below.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            PickerTabButton(
-                icon = Icons.Outlined.Image,
-                label = "الصور",
-                selected = selectedTab == AttachmentPickerTab.PHOTOS,
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    selectedTab = AttachmentPickerTab.PHOTOS
-                    selectedAlbum = null
-                    selectedUris.clear()
-                }
-            )
-            PickerTabButton(
-                icon = Icons.Outlined.Videocam,
-                label = "الفيديو",
-                selected = selectedTab == AttachmentPickerTab.VIDEOS,
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    selectedTab = AttachmentPickerTab.VIDEOS
-                    selectedAlbum = null
-                    selectedUris.clear()
-                }
-            )
-            PickerTabButton(
-                icon = Icons.Outlined.Description,
-                label = "الملفات",
-                selected = selectedTab == AttachmentPickerTab.FILES,
-                modifier = Modifier.weight(1f),
-                onClick = { selectedTab = AttachmentPickerTab.FILES }
-            )
+        // مقبض السحب العلوي (مثل تيليجرام)
+        Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(36.dp).height(4.dp).clip(CircleShape).background(Color.Gray.copy(alpha = 0.5f)))
         }
-        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.4f))
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (selectedTab) {
@@ -570,7 +537,7 @@ fun AttachmentPickerPanel(
                                     LazyVerticalGrid(
                                         columns = GridCells.Fixed(2),
                                         modifier = Modifier.fillMaxSize(),
-                                        contentPadding = PaddingValues(6.dp),
+                                        contentPadding = PaddingValues(6.dp, 6.dp, 6.dp, 92.dp),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
@@ -606,7 +573,7 @@ fun AttachmentPickerPanel(
                                     LazyVerticalGrid(
                                         columns = GridCells.Fixed(3),
                                         modifier = Modifier.fillMaxSize(),
-                                        contentPadding = PaddingValues(2.dp),
+                                        contentPadding = PaddingValues(2.dp, 2.dp, 2.dp, 92.dp),
                                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                                         verticalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
@@ -674,7 +641,7 @@ fun AttachmentPickerPanel(
                                             )
                                             selectedUris.clear()
                                         },
-                                        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                                        modifier = Modifier.align(Alignment.BottomEnd).padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 92.dp),
                                         containerColor = Color(0xFF4CAF50),
                                         contentColor = Color.White
                                     ) {
@@ -782,7 +749,7 @@ fun AttachmentPickerPanel(
                                         }
                                     }
                                 } else {
-                                    LazyColumn(Modifier.fillMaxSize()) {
+                                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 92.dp)) {
                                         items(dirEntries, key = { it.absolutePath }) { entry ->
                                             Row(
                                                 modifier = Modifier
@@ -835,6 +802,89 @@ fun AttachmentPickerPanel(
                     }
                 }
             }
+            // شريط التبويبات السفلي العائم بنمط تيليجرام: فوق المحتوى، مع مؤشر منزلق
+            PickerBottomBar(
+                selected = selectedTab,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) { tab ->
+                selectedTab = tab
+                if (tab != AttachmentPickerTab.FILES) {
+                    selectedAlbum = null
+                    selectedUris.clear()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PickerBottomBar(
+    selected: AttachmentPickerTab,
+    modifier: Modifier = Modifier,
+    onSelect: (AttachmentPickerTab) -> Unit
+) {
+    val cfg = LocalSettingsTheme.current
+    val theme = cfg.theme
+    val accent = MaterialTheme.colorScheme.primary
+    val items = listOf(
+        Triple(AttachmentPickerTab.PHOTOS, Icons.Outlined.Image, "المعرض"),
+        Triple(AttachmentPickerTab.VIDEOS, Icons.Outlined.Videocam, "الفيديو"),
+        Triple(AttachmentPickerTab.FILES, Icons.Outlined.Description, "ملف")
+    )
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    val selIndex = items.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+    val barBg = if (theme.isDark) Color(0xFF1F1F1F).copy(alpha = 0.96f) else Color(0xFFF2F2F7).copy(alpha = 0.96f)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+            .height(58.dp)
+            .shadow(8.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.25f))
+            .clip(CircleShape)
+            .background(barBg)
+            .padding(4.dp)
+    ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val tabWidth = maxWidth / items.size
+            val visualIndex = if (rtl) items.size - 1 - selIndex else selIndex
+            // المؤشر المنزلق: نفس spring الخاص بالشريط السفلي في مشروعك
+            val indicatorOffset by androidx.compose.animation.core.animateDpAsState(
+                targetValue = tabWidth * visualIndex,
+                animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 400f),
+                label = "picker_pill"
+            )
+            Box(
+                modifier = Modifier
+                    .offset(x = indicatorOffset)
+                    .width(tabWidth)
+                    .fillMaxHeight()
+                    .clip(CircleShape)
+                    .background(accent.copy(alpha = if (theme.isDark) 0.30f else 0.18f))
+            )
+            Row(modifier = Modifier.fillMaxSize()) {
+                items.forEach { (tab, icon, label) ->
+                    val isSel = tab == selected
+                    val tint by androidx.compose.animation.animateColorAsState(
+                        if (isSel) accent else theme.textSecondary, label = "picker_tint"
+                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(CircleShape)
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) { onSelect(tab) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(24.dp))
+                        Text(label, color = tint, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    }
+                }
+            }
         }
     }
 }
@@ -866,7 +916,7 @@ private fun PickerTabButton(
 
 @Composable
 private fun RecentFilesList(files: List<RecentFileItem>, onFileClick: (Uri) -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 92.dp)) {
         items(files, key = { it.id }) { file ->
             Row(
                 modifier = Modifier
