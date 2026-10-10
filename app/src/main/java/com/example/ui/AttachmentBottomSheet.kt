@@ -314,7 +314,9 @@ fun AttachmentOption(icon: ImageVector, label: String, color: Color, onClick: ()
 fun AttachmentPickerPanel(
     panelHeight: Dp,
     onAttachmentSelected: (List<Uri>, AttachmentType) -> Unit,
-    onOpenGifPicker: () -> Unit = {}
+    onOpenGifPicker: () -> Unit = {},
+    allowPoll: Boolean = false,
+    onPollClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(AttachmentPickerTab.PHOTOS) }
@@ -805,6 +807,8 @@ fun AttachmentPickerPanel(
             // شريط التبويبات السفلي العائم بنمط تيليجرام: فوق المحتوى، مع مؤشر منزلق
             PickerBottomBar(
                 selected = selectedTab,
+                showPoll = allowPoll,
+                onPoll = onPollClick,
                 modifier = Modifier.align(Alignment.BottomCenter)
             ) { tab ->
                 selectedTab = tab
@@ -820,17 +824,21 @@ fun AttachmentPickerPanel(
 @Composable
 private fun PickerBottomBar(
     selected: AttachmentPickerTab,
+    showPoll: Boolean = false,
+    onPoll: () -> Unit = {},
     modifier: Modifier = Modifier,
     onSelect: (AttachmentPickerTab) -> Unit
 ) {
     val theme = LocalSettingsTheme.current.theme
     val accent = MaterialTheme.colorScheme.primary
     // (التبويب، الأيقونة، العنوان، تدرّج لون الشارة) — شارات ملوّنة بدل أيقونات رمادية
-    val items = listOf(
-        listOf(AttachmentPickerTab.PHOTOS, Icons.Outlined.Image, "المعرض", Color(0xFF34D399), Color(0xFF059669)),
-        listOf(AttachmentPickerTab.VIDEOS, Icons.Outlined.Videocam, "الفيديو", Color(0xFFFB7185), Color(0xFFE11D48)),
-        listOf(AttachmentPickerTab.FILES, Icons.Outlined.Description, "ملف", Color(0xFF60A5FA), Color(0xFF2563EB))
-    )
+    val items = buildList<List<Any?>> {
+        add(listOf(AttachmentPickerTab.PHOTOS, Icons.Outlined.Image, "المعرض", Color(0xFF34D399), Color(0xFF059669)))
+        add(listOf(AttachmentPickerTab.VIDEOS, Icons.Outlined.Videocam, "الفيديو", Color(0xFFFB7185), Color(0xFFE11D48)))
+        add(listOf(AttachmentPickerTab.FILES, Icons.Outlined.Description, "ملف", Color(0xFF60A5FA), Color(0xFF2563EB)))
+        // استفتاء: يظهر في القنوات والمجموعات فقط (ليس في الدردشة الفردية)
+        if (showPoll) add(listOf(null, Icons.Outlined.Poll, "استفتاء", Color(0xFFA78BFA), Color(0xFF7C3AED)))
+    }
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val selIndex = items.indexOfFirst { it[0] == selected }.coerceAtLeast(0)
     val barBg = if (theme.isDark) Color(0xFF1F1F1F).copy(alpha = 0.97f) else Color(0xFFF2F2F7).copy(alpha = 0.97f)
@@ -863,12 +871,12 @@ private fun PickerBottomBar(
             )
             Row(modifier = Modifier.fillMaxSize()) {
                 items.forEach { item ->
-                    val tab = item[0] as AttachmentPickerTab
+                    val tab = item[0] as AttachmentPickerTab?
                     val icon = item[1] as ImageVector
                     val label = item[2] as String
                     val c1 = item[3] as Color
                     val c2 = item[4] as Color
-                    val isSel = tab == selected
+                    val isSel = tab != null && tab == selected
                     val tint by androidx.compose.animation.animateColorAsState(
                         if (isSel) accent else theme.textSecondary, label = "picker_tint"
                     )
@@ -880,7 +888,7 @@ private fun PickerBottomBar(
                             .clickable(
                                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                                 indication = null
-                            ) { onSelect(tab) },
+                            ) { if (tab == null) onPoll() else onSelect(tab) },
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {

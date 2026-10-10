@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextStyle
@@ -92,7 +93,7 @@ private val EMOJI_KEYWORDS = mapOf(
 /** لوحة الإيموجي / GIF / الملصقات: كارد سفلي صغير مع شريط تبويبات منزلق (بنمط تيليجرام). */
 @Composable
 fun LabEmojiGifPanel(
-    height: Dp,
+    heightProvider: () -> Dp,
     recentEmojis: List<String>,
     onEmoji: (String) -> Unit,
     onBackspace: () -> Unit,
@@ -109,7 +110,12 @@ fun LabEmojiGifPanel(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(height)
+            .layout { measurable, constraints ->
+                // الارتفاع المتحرك يُقرأ هنا (مرحلة القياس) فلا يُعاد تركيب الشاشة كلها في كل إطار
+                val h = heightProvider().roundToPx().coerceIn(0, constraints.maxHeight)
+                val p = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                layout(p.width, p.height) { p.placeRelative(0, 0) }
+            }
             .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
             .background(theme.surfaceColor)
     ) {

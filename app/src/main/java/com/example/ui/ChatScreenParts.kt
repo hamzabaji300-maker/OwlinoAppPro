@@ -2,6 +2,7 @@
 package com.example.ui
 
 import androidx.compose.animation.*
+import androidx.compose.material.icons.outlined.SentimentSatisfiedAlt
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.*
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -645,7 +646,7 @@ fun ChatMessages(
      ){
        itemsIndexed(messages, key = { _, it -> it.msg.id }, contentType = { _, _ -> "message" }) { index, uiMsg ->
           val message = uiMsg.msg
-          SwipeToReplyWrapper(modifier = Modifier.animateItem().dissolveOnDelete(message.id in deletingIds), onReply = { if (!isSelectionMode) onReply(message) }) {
+          SwipeToReplyWrapper(modifier = Modifier.animateItem().then(if (message.id in deletingIds) Modifier.dissolveOnDelete(true) else Modifier), onReply = { if (!isSelectionMode) onReply(message) }) {
              val bounds = remember { arrayOf(androidx.compose.ui.geometry.Rect.Zero) }
              val isSelected = message.id in selectedMessages
              val isHighlighted = message.id == highlightedMessageId || message.id == activeContextMenuMessageId
@@ -851,6 +852,8 @@ fun MessageInputBar(
     trailing: (@Composable () -> Unit)? = null,
     onOpenGifPicker: () -> Unit = {},
     closeAttachmentSignal: Int = 0,
+    allowPoll: Boolean = false,
+    onPollClick: () -> Unit = {},
     onAttachmentPanelToggle: (Boolean) -> Unit = {}
 ) {
     var isRecording by remember { mutableStateOf(false) }
@@ -1091,16 +1094,16 @@ fun MessageInputBar(
                         )
                     }
                     trailing?.invoke()
-                    // زر GIF: نص فقط بلا خلفية، بجانب زر الإرسال
-                    Text(
-                        text = "GIF",
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
+                    // زر الإيموجي (بدل GIF): يفتح لوحة الإيموجي / الصور المتحركة
+                    Icon(
+                        androidx.compose.material.icons.Icons.Outlined.SentimentSatisfiedAlt,
+                        contentDescription = "Emoji",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .size(36.dp)
+                            .clip(CircleShape)
                             .clickable { onOpenGifPicker() }
-                            .padding(horizontal = 8.dp, vertical = 8.dp)
+                            .padding(5.dp)
                     )
                 }
                 
@@ -1272,6 +1275,12 @@ fun MessageInputBar(
                 onAttachmentSelected = { uris, type ->
                     onAttachmentSelected(uris, type)
                     showAttachmentPanel = false
+                },
+                allowPoll = allowPoll,
+                onPollClick = {
+                    showAttachmentPanel = false
+                    onAttachmentPanelToggle(false)
+                    onPollClick()
                 },
             )
         }

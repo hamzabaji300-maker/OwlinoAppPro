@@ -147,7 +147,9 @@ data class MessageModel(
     val viewsLabel: String? = null,
     val forwardsLabel: String? = null,
     val totalInteractionsLabel: String? = null,
-    val channelReactions: List<ChannelReaction> = emptyList()
+    val channelReactions: List<ChannelReaction> = emptyList(),
+    // --- استفتاء (يُنشأ من زر + في القنوات والمجموعات) ---
+    val poll: Poll? = null
 )
 
 @androidx.compose.runtime.Stable
@@ -233,3 +235,20 @@ data class ProfileLink(
     val description: String = ""
 )
 
+
+
+data class PollOption(val text: String, val votes: Int = 0)
+
+data class Poll(
+    val question: String,
+    val options: List<PollOption>,
+    val multiple: Boolean = false,
+    val revoting: Boolean = true,
+    /** فهرس الإجابة الصحيحة إن كان اختبارًا */
+    val quizCorrect: Int? = null,
+    val restrictSubscribers: Boolean = false,
+    val restrictCountries: Boolean = false,
+    /** وقت الإغلاق التلقائي بالملّي ثانية (null = مفتوح) */
+    val endsAt: Long? = null,
+    val myVotes: Set<Int> = emptySet()
+)

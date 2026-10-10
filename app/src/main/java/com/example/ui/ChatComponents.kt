@@ -286,7 +286,9 @@ fun MessageBubble(
             val audioAtt = emojiOnlyAudioAtt
             val cleanText = emojiOnlyCleanText
 
-            if (isEmojiOnlyMessage) {
+            if (msg.poll != null) {
+                PollBubbleContent(msg = msg, isMe = isMe, textColor = textColor, accent = __themeConfig.accent)
+            } else if (isEmojiOnlyMessage) {
                 val units = emojiOnlySequence!!
                 Column(modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
                     // يتحرك مرة واحدة عند الإرسال فقط، وبعدها ثابت. الضغط عليه يحرّكه لثوانٍ ثم يتوقف

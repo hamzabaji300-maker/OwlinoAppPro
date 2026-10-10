@@ -52,13 +52,14 @@ private fun labMsg(
     kind: LabKind, text: String, mine: Boolean, sender: String = "",
     markup: String? = null, views: String? = null,
     attachments: List<Attachment> = emptyList(), id: String = UUID.randomUUID().toString(),
-    replyTo: MessageModel? = null
+    replyTo: MessageModel? = null, poll: Poll? = null
 ) = MessageModel(
     id = id, chatId = kind.name, senderId = if (mine) "me" else sender.ifBlank { "other" },
     senderName = sender, text = text, time = nowLabel(), isMine = mine,
     replyToId = replyTo?.id, replyTo = replyTo,
     attachments = attachments, replyMarkup = markup, viewsLabel = views,
     createdAtExact = java.time.Instant.now().toString(),
+    poll = poll,
     channelReactions = if (kind.isChannel) listOf(ChannelReaction("👍", 120), ChannelReaction("🔥", 45)) else emptyList()
 )
 
@@ -87,6 +88,40 @@ class LabChatState(val kind: LabKind) {
     var showPanel by mutableStateOf(false)
     var panelExpanded by mutableStateOf(false)
     var closeAttachSignal by mutableStateOf(0)
+    var showPollComposer by mutableStateOf(false)
+
+    /** إرسال استفتاء ثم محاكاة تصويت أعضاء آخرين خلال ثوانٍ (لا يوجد خادم في المختبر). */
+    fun sendPoll(poll: Poll, scope: CoroutineScope) {
+        val id = UUID.randomUUID().toString()
+        messages += labMsg(kind, "", true, poll = poll, id = id, views = if (kind.isChannel) "1" else null)
+        scope.launch {
+            val rnd = java.util.Random()
+            repeat(4) {
+                delay(1600)
+                update(messages.firstOrNull { it.id == id } ?: return@launch) { m ->
+                    val p = m.poll ?: return@update m
+                    if (p.endsAt != null && System.currentTimeMillis() >= p.endsAt) return@update m
+                    val opts = p.options.toMutableList()
+                    val k = rnd.nextInt(opts.size)
+                    opts[k] = opts[k].copy(votes = opts[k].votes + 1 + rnd.nextInt(3))
+                    m.copy(poll = p.copy(options = opts))
+                }
+            }
+        }
+    }
+
+    /** تصويت المستخدم: newVotes فارغة = سحب التصويت. يحترم إعادة التصويت والإغلاق. */
+    fun vote(messageId: String, newVotes: Set<Int>) {
+        val msg = messages.firstOrNull { it.id == messageId } ?: return
+        val p = msg.poll ?: return
+        if (p.endsAt != null && System.currentTimeMillis() >= p.endsAt) return
+        val old = p.myVotes
+        if (old.isNotEmpty() && !p.revoting && newVotes.isNotEmpty()) return
+        val opts = p.options.mapIndexed { i, o ->
+            o.copy(votes = (o.votes - (if (i in old) 1 else 0) + (if (i in newVotes) 1 else 0)).coerceAtLeast(0))
+        }
+        update(msg) { it.copy(poll = p.copy(options = opts, myVotes = newVotes)) }
+    }
     var panelSearchActive by mutableStateOf(false)
 
     fun closePanel() {
@@ -334,12 +369,13 @@ fun LabMessagesScreen(
     val pinned = snapshot.filter { it.isPinned }
     var pinIndex by remember { mutableStateOf(0) }
     val isSelectionMode = state.selected.isNotEmpty()
+    val pollVote = remember(state) { { id: String, v: Set<Int> -> state.vote(id, v) } }
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val imeVisible = WindowInsets.isImeVisible
     val collapsedH = (configuration.screenHeightDp * 0.42f).dp
     val expandedH = (configuration.screenHeightDp * 0.82f).dp
-    val panelHeight by androidx.compose.animation.core.animateDpAsState(
+    val panelHeightState = androidx.compose.animation.core.animateDpAsState(
         targetValue = if (state.panelExpanded || state.panelSearchActive) expandedH else collapsedH,
         animationSpec = androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         label = "panel_height"
@@ -358,6 +394,7 @@ fun LabMessagesScreen(
         Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)).imePadding()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    CompositionLocalProvider(LocalPollVote provides pollVote) {
                     ChatMessages(
                         messages = uiMessages,
                         isChannel = kind.isChannel,
@@ -396,6 +433,7 @@ fun LabMessagesScreen(
                             }
                         }
                     )
+                    }
                     Column(modifier = Modifier.align(Alignment.TopCenter)) {
                         if (isSelectionMode) {
                             SelectionTopBar(
@@ -471,6 +509,8 @@ fun LabMessagesScreen(
                             onTextChange = { state.text = it },
                             onSend = { state.sendText(scope) },
                             closeAttachmentSignal = state.closeAttachSignal,
+                            allowPoll = kind.isChannel || kind.isGroup,
+                            onPollClick = { state.showPollComposer = true },
                             onAttachmentPanelToggle = { open -> if (open) state.closePanel() },
                             onOpenGifPicker = {
                                 if (state.showPanel) state.closePanel()
@@ -522,7 +562,7 @@ fun LabMessagesScreen(
                             ) { it / 2 } + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
                         ) {
                             LabEmojiGifPanel(
-                                height = panelHeight,
+                                heightProvider = { panelHeightState.value },
                                 recentEmojis = state.recentEmojis,
                                 onEmoji = { state.addEmoji(it) },
                                 onBackspace = { state.backspace() },
@@ -543,6 +583,24 @@ fun LabMessagesScreen(
                 }
             }
         }
+    }
+
+    // ===== شاشة إنشاء الاستفتاء (قنوات ومجموعات) =====
+    androidx.compose.animation.AnimatedVisibility(
+        visible = state.showPollComposer,
+        enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it } +
+            androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)),
+        exit = androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it } +
+            androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))
+    ) {
+        LabPollComposer(
+            isChannel = kind.isChannel,
+            onDismiss = { state.showPollComposer = false },
+            onCreate = { poll ->
+                state.showPollComposer = false
+                state.sendPoll(poll, scope)
+            }
+        )
     }
 
     // ===== القائمة الأصلية عند الضغط المطوّل =====
