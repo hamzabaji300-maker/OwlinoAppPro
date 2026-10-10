@@ -94,7 +94,7 @@ fun Modifier.dissolveOnDelete(active: Boolean): Modifier = composed {
                 failed = true
             }
             progress.snapTo(0f)
-            progress.animateTo(1f, tween(DELETE_EFFECT_MS, LinearEasing))
+            progress.animateTo(1f, tween(DELETE_EFFECT_MS, easing = LinearEasing))
         } else {
             progress.snapTo(0f)
             dust = null
