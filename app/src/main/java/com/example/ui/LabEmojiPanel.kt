@@ -1,15 +1,21 @@
 package com.example.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -30,24 +36,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.emoji.EmojiMessageUtils
-import com.example.emoji.NotoEmojiMap
 import com.example.util.GifClient
 import com.example.util.GifItem
 import kotlinx.coroutines.CancellationException
@@ -57,16 +63,18 @@ private enum class PanelTab { EMOJI, GIF, STICKERS }
 
 private class EmojiCategory(val icon: ImageVector, val emojis: List<String>)
 
-private fun e(s: String) = s.trim().split(" ").filter { it.isNotBlank() }
+private fun e(s: String) = s.trim().split(" ").filter { it.isNotBlank() }.distinct()
 
 private val EMOJI_CATEGORIES = listOf(
-    EmojiCategory(Icons.Outlined.SentimentSatisfiedAlt, e("😀 😃 😄 😁 😆 😅 😂 🤣 🥲 ☺️ 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🤭 🤫 🤥 😶 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 👍 👎 👏 🙌 🙏 🤝 👋 ✌️ 🤞 👌 💪")),
-    EmojiCategory(Icons.Outlined.Pets, e("🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🐛 🦋 🐌 🐞 🐜 🐢 🐍 🦎 🐙 🦑 🦐 🦀 🐡 🐠 🐟 🐬 🐳 🐋 🦈 🐊 🐅 🐆 🦓 🦍 🐘 🦏 🐪 🐫 🦒 🦘 🐃 🐂 🐄 🐎 🐖 🐏 🐑 🐐 🦌 🐕 🐩 🐈 🐓 🦃 🐇 🐁 🐀 🦔")),
-    EmojiCategory(Icons.Outlined.Fastfood, e("🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🍆 🥑 🥦 🥬 🥒 🌽 🥕 🧄 🧅 🥔 🍠 🥐 🥯 🍞 🥖 🧀 🥚 🍳 🥞 🧇 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🥪 🌮 🌯 🥗 🍝 🍜 🍲 🍛 🍣 🍱 🥟 🍤 🍙 🍚 🍘 🍥 🍦 🍧 🍨 🍩 🍪 🎂 🍰 🧁 🍫 🍬 🍭 ☕ 🍵 🥤 🍺 🍷")),
-    EmojiCategory(Icons.Outlined.SportsSoccer, e("⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🏓 🏸 🏒 🥍 🏏 🥅 ⛳ 🏹 🎣 🥊 🥋 🎽 🛹 🛼 ⛸️ 🥌 🎿 🏂 🤼 🤸 🤺 🤾 🏇 🧘 🏄 🏊 🚣 🧗 🚴 🎪 🎭 🎨 🎬 🎤 🎧 🎼 🎹 🥁 🎷 🎺 🎸 🎻 🎲 🎯 🎳 🎮 🎰 🧩")),
-    EmojiCategory(Icons.Outlined.DirectionsCar, e("🚗 🚕 🚙 🚌 🚎 🚓 🚑 🚒 🚐 🚚 🚛 🚜 🛴 🚲 🛵 🚨 🚔 🚍 🚘 🚖 🚡 🚠 🚟 🚃 🚋 🚞 🚝 🚄 🚅 🚈 🚂 🚆 🚇 🚊 🚉 ✈️ 🛫 🛬 💺 🚁 🚀 🛸 🚢 ⛵ 🛶 ⚓ 🏖️ 🏝️ 🏔️ ⛰️ 🌋 🏕️ 🏠 🏡 🏢 🏰 🗼 🗽 ⛪ 🕌 🌃 🌆 🌇 🌉 🎠 🎡 🎢")),
-    EmojiCategory(Icons.Outlined.Lightbulb, e("⌚ 📱 💻 ⌨️ 🖥️ 🖨️ 🖱️ 💽 💾 📷 📹 🎥 📞 ☎️ 📺 📻 ⏰ 🔋 🔌 💡 🔦 🕯️ 💸 💵 💰 💳 💎 🔧 🔨 🛠️ 🔩 ⚙️ 🧲 💣 🔪 🛡️ 🔮 💊 💉 🔬 🔭 🧹 🧺 🚽 🚿 🛁 🔑 🚪 🛋️ 🛏️ 🎁 🎈 🎉 🎊 ✉️ 📦 📝 📚 📎 ✂️ 🔒 🔓")),
-    EmojiCategory(Icons.Outlined.Favorite, e("❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ ☸️ ✡️ ☯️ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ ✅ ❌ ❎ ❓ ❔ ❕ ❗ ‼️ ⁉️ 💯 🔥 ✨ ⭐ 🌟 ⚡ 💥 💫 💢 💤 🔔 🎵 🎶 ➕ ➖ ➗ ✖️ ♾️ ♻️ ⚠️ 🚫 ⭕"))
+    EmojiCategory(Icons.Outlined.SentimentSatisfiedAlt, e("😀 😃 😄 😁 😆 😅 😂 🤣 🥲 ☺️ 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🤭 🤫 🤥 😶 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 😈 👿 👹 👺 🤡 💩 👻 💀 ☠️ 👽 👾 🤖 🎃 😺 😸 😹 😻 😼 😽 🙀 😿 😾 🙈 🙉 🙊")),
+    EmojiCategory(Icons.Outlined.WavingHand, e("👍 👎 👊 ✊ 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦾 🦵 🦶 👂 🦻 👃 🧠 🦷 🦴 👀 👁️ 👅 👄 💋 👋 🤚 🖐️ ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 👶 🧒 👦 👧 🧑 👨 👩 🧓 👴 👵 👮 🕵️ 💂 👷 🤴 👸 👳 🧕 🤵 👰 🤰 🤱 👼 🎅 🤶 🦸 🦹 🧙 🧚 🧛 🧜 🧝 🧞 🧟 💆 💇 🚶 🏃 💃 🕺 👯 🧖 🧘 👪 👫 👭 👬 💏 💑")),
+    EmojiCategory(Icons.Outlined.Pets, e("🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐽 🐸 🐵 🙈 🙉 🙊 🐒 🐔 🐧 🐦 🐤 🐣 🐥 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🐛 🦋 🐌 🐞 🐜 🦟 🦗 🕷️ 🕸️ 🦂 🐢 🐍 🦎 🦖 🦕 🐙 🦑 🦐 🦞 🦀 🐡 🐠 🐟 🐬 🐳 🐋 🦈 🐊 🐅 🐆 🦓 🦍 🦧 🐘 🦛 🦏 🐪 🐫 🦒 🦘 🐃 🐂 🐄 🐎 🐖 🐏 🐑 🦙 🐐 🦌 🐕 🐩 🦮 🐈 🐓 🦃 🦚 🦜 🦢 🦩 🕊️ 🐇 🦝 🦨 🦡 🦦 🦥 🐁 🐀 🐿️ 🦔 🌵 🎄 🌲 🌳 🌴 🌱 🌿 ☘️ 🍀 🎍 🎋 🍃 🍂 🍁 🍄 🐚 🌾 💐 🌷 🌹 🥀 🌺 🌸 🌼 🌻 🌞 🌝 🌛 🌜 🌚 🌕 🌖 🌗 🌘 🌑 🌒 🌓 🌔 🌙 🌎 🌍 🌏 💫 ⭐ 🌟 ✨ ⚡ ☄️ 💥 🔥 🌪️ 🌈 ☀️ 🌤️ ⛅ 🌥️ ☁️ 🌦️ 🌧️ ⛈️ 🌩️ 🌨️ ❄️ ☃️ ⛄ 🌬️ 💨 💧 💦 ☔ ☂️ 🌊 🌫️")),
+    EmojiCategory(Icons.Outlined.Fastfood, e("🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🍆 🥑 🥦 🥬 🥒 🌶️ 🌽 🥕 🧄 🧅 🥔 🍠 🥐 🥯 🍞 🥖 🥨 🧀 🥚 🍳 🧈 🥞 🧇 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🥪 🥙 🧆 🌮 🌯 🥗 🥘 🥫 🍝 🍜 🍲 🍛 🍣 🍱 🥟 🍤 🍙 🍚 🍘 🍥 🥠 🥮 🍢 🍡 🍧 🍨 🍦 🥧 🧁 🍰 🎂 🍮 🍭 🍬 🍫 🍿 🍩 🍪 🌰 🥜 🍯 🥛 🍼 ☕ 🍵 🧃 🥤 🍶 🍺 🍻 🥂 🍷 🥃 🍸 🍹 🧉 🍾 🧊 🥄 🍴 🍽️ 🥣 🥡 🥢 🧂")),
+    EmojiCategory(Icons.Outlined.SportsSoccer, e("⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🏓 🏸 🏒 🏑 🥍 🏏 🥅 ⛳ 🏹 🎣 🥊 🥋 🎽 🛹 🛼 🛷 ⛸️ 🥌 🎿 ⛷️ 🏂 🏋️ 🤼 🤸 ⛹️ 🤺 🤾 🏌️ 🏇 🧘 🏄 🏊 🤽 🚣 🧗 🚴 🚵 🎖️ 🏆 🏅 🥇 🥈 🥉 🎗️ 🎫 🎟️ 🎪 🤹 🎭 🎨 🎬 🎤 🎧 🎼 🎹 🥁 🎷 🎺 🎸 🎻 🎲 ♟️ 🎯 🎳 🎮 🎰 🧩")),
+    EmojiCategory(Icons.Outlined.DirectionsCar, e("🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🚚 🚛 🚜 🛴 🚲 🛵 🏍️ 🚨 🚔 🚍 🚘 🚖 🚡 🚠 🚟 🚃 🚋 🚞 🚝 🚄 🚅 🚈 🚂 🚆 🚇 🚊 🚉 ✈️ 🛫 🛬 🛩️ 💺 🛰️ 🚀 🛸 🚁 🛶 ⛵ 🚤 🛥️ 🛳️ ⛴️ 🚢 ⚓ ⛽ 🚧 🚦 🚥 🚏 🗺️ 🗿 🗽 🗼 🏰 🏯 🏟️ 🎡 🎢 🎠 ⛲ ⛱️ 🏖️ 🏝️ 🏜️ 🌋 ⛰️ 🏔️ 🗻 🏕️ ⛺ 🏠 🏡 🏘️ 🏚️ 🏗️ 🏭 🏢 🏬 🏣 🏤 🏥 🏦 🏨 🏪 🏫 🏩 💒 🏛️ ⛪ 🕌 🕍 🕋 ⛩️ 🛤️ 🛣️ 🗾 🎑 🏞️ 🌅 🌄 🌠 🎇 🎆 🌇 🌆 🏙️ 🌃 🌌 🌉 🌁")),
+    EmojiCategory(Icons.Outlined.Lightbulb, e("⌚ 📱 📲 💻 ⌨️ 🖥️ 🖨️ 🖱️ 🖲️ 🕹️ 💽 💾 💿 📀 📼 📷 📸 📹 🎥 📽️ 🎞️ 📞 ☎️ 📟 📠 📺 📻 🎙️ 🎚️ 🎛️ ⏱️ ⏲️ ⏰ 🕰️ ⌛ ⏳ 📡 🔋 🔌 💡 🔦 🕯️ 🗑️ 💸 💵 💴 💶 💷 💰 💳 🧾 💎 ⚖️ 🔧 🔨 ⚒️ 🛠️ ⛏️ 🔩 ⚙️ 🧱 ⛓️ 🧲 🔫 💣 🧨 🔪 🗡️ ⚔️ 🛡️ 🚬 ⚰️ ⚱️ 🏺 🔮 📿 💈 ⚗️ 🔭 🔬 🕳️ 💊 💉 🩸 🧬 🦠 🧫 🧪 🌡️ 🧹 🧺 🧻 🚽 🚰 🚿 🛁 🧼 🧽 🧴 🔑 🗝️ 🚪 🛋️ 🛏️ 🧸 🖼️ 🛍️ 🛒 🎁 🎈 🎏 🎀 🎊 🎉 🎎 🏮 🎐 ✉️ 📩 📨 📧 💌 📥 📤 📦 🏷️ 📪 📫 📬 📭 📮 📜 📃 📄 📑 📊 📈 📉 🗒️ 🗓️ 📆 📅 📇 🗃️ 🗳️ 🗄️ 📋 📁 📂 🗂️ 🗞️ 📰 📓 📔 📒 📕 📗 📘 📙 📚 📖 🔖 🧷 🔗 📎 🖇️ 📐 📏 🧮 📌 📍 ✂️ 🖊️ 🖋️ ✒️ 🖌️ 🖍️ 📝 ✏️ 🔍 🔎 🔏 🔐 🔒 🔓")),
+    EmojiCategory(Icons.Outlined.Favorite, e("❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉️ ☸️ ✡️ 🔯 🕎 ☯️ ☦️ 🛐 ⛎ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ 🆔 ⚛️ ☢️ ☣️ 📴 📳 ✴️ 🆚 💮 ㊙️ ㊗️ 🅰️ 🅱️ 🆎 🆑 🅾️ 🆘 ❌ ⭕ 🛑 ⛔ 📛 🚫 💯 💢 ♨️ 🚷 🚯 🚳 🚱 🔞 📵 🚭 ❗ ❕ ❓ ❔ ‼️ ⁉️ 🔅 🔆 〽️ ⚠️ 🚸 🔱 ⚜️ 🔰 ♻️ ✅ 💹 ❇️ ✳️ ❎ 🌐 💠 Ⓜ️ 🌀 💤 🏧 🚾 ♿ 🅿️ 🛂 🛃 🛄 🛅 🚹 🚺 🚼 🚻 🚮 🎦 📶 🔣 ℹ️ 🔤 🔡 🔠 🆖 🆗 🆙 🆒 🆕 🆓 0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟 🔢 #️⃣ *️⃣ ▶️ ⏸️ ⏯️ ⏹️ ⏺️ ⏭️ ⏮️ ⏩ ⏪ ⏫ ⏬ ◀️ 🔼 🔽 ➡️ ⬅️ ⬆️ ⬇️ ↗️ ↘️ ↙️ ↖️ ↕️ ↔️ ↪️ ↩️ ⤴️ ⤵️ 🔀 🔁 🔂 🔄 🔃 🎵 🎶 ➕ ➖ ➗ ✖️ ♾️ 💲 💱 ™️ ©️ ®️ 🔚 🔙 🔛 🔝 🔜 〰️ ➰ ➿ ✔️ ☑️ 🔘 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔸 🔹 🔶 🔷 🔳 🔲 ▪️ ▫️ ◾ ◽ ◼️ ◻️ ⬛ ⬜ 🔈 🔇 🔉 🔊 🔔 🔕 📣 📢 💬 💭 🗯️ ♠️ ♣️ ♥️ ♦️ 🃏 🎴 🀄 🕐 🕑 🕒 🕓 🕔 🕕 🕖 🕗 🕘 🕙 🕚 🕛")),
+    EmojiCategory(Icons.Outlined.Flag, e("🏁 🚩 🎌 🏴 🏳️ 🇩🇿 🇸🇦 🇦🇪 🇪🇬 🇲🇦 🇹🇳 🇱🇾 🇯🇴 🇱🇧 🇸🇾 🇮🇶 🇰🇼 🇶🇦 🇧🇭 🇴🇲 🇾🇪 🇵🇸 🇸🇩 🇲🇷 🇹🇷 🇮🇷 🇫🇷 🇬🇧 🇺🇸 🇩🇪 🇮🇹 🇪🇸 🇵🇹 🇳🇱 🇧🇪 🇨🇭 🇸🇪 🇳🇴 🇷🇺 🇨🇳 🇯🇵 🇰🇷 🇮🇳 🇧🇷 🇦🇷 🇨🇦 🇲🇽 🇦🇺 🇿🇦 🇳🇬 🇸🇳 🇨🇮"))
 )
 
 private val EMOJI_KEYWORDS = mapOf(
@@ -75,24 +83,24 @@ private val EMOJI_KEYWORDS = mapOf(
     "حزن" to "😢😞😔", "fire" to "🔥", "نار" to "🔥", "like" to "👍❤️", "اعجاب" to "👍❤️",
     "clap" to "👏🙌", "تصفيق" to "👏🙌", "pray" to "🙏", "دعاء" to "🙏", "cool" to "😎", "angry" to "😡😠🤬",
     "غضب" to "😡😠🤬", "kiss" to "😘💋", "قبلة" to "😘💋", "party" to "🥳🎉🎊", "حفلة" to "🥳🎉🎊",
-    "cat" to "🐱🐈", "قط" to "🐱🐈", "dog" to "🐶🐕", "كلب" to "🐶🐕", "food" to "🍕🍔🍟", "طعام" to "🍕🍔🍟"
+    "cat" to "🐱🐈", "قط" to "🐱🐈", "dog" to "🐶🐕", "كلب" to "🐶🐕", "food" to "🍕🍔🍟", "طعام" to "🍕🍔🍟",
+    "flag" to "🏁🚩🏳️", "علم" to "🏁🚩🏳️", "car" to "🚗🚕🚙", "سيارة" to "🚗🚕🚙", "star" to "⭐🌟✨", "نجمة" to "⭐🌟✨",
+    "sun" to "☀️🌞", "شمس" to "☀️🌞", "moon" to "🌙🌚", "قمر" to "🌙🌚", "flower" to "🌹🌸🌼🌷", "وردة" to "🌹🌸🌼🌷",
+    "money" to "💰💵💸", "مال" to "💰💵💸", "gift" to "🎁🎀", "هدية" to "🎁🎀", "ok" to "👌👍", "hi" to "👋🤚", "مرحبا" to "👋🤚"
 )
-
-private val POPULAR_STICKERS = e("😂 😍 🥳 😎 🤩 😭 😡 🥰 🤔 😱 🤯 🥺 😴 🤪 🙌 👍 🔥 ❤️ 💯 🎉 🙏 😘 🤗 😇")
 
 /** لوحة الإيموجي / GIF / الملصقات: كارد سفلي صغير مع شريط تبويبات منزلق (بنمط تيليجرام). */
 @Composable
 fun LabEmojiGifPanel(
     height: Dp,
     recentEmojis: List<String>,
-    recentStickers: List<String>,
     onEmoji: (String) -> Unit,
     onBackspace: () -> Unit,
     onGif: (GifItem) -> Unit,
-    onSticker: (String) -> Unit,
-    onClearStickers: () -> Unit,
     showTabBar: Boolean = true,
-    onSearchFocus: (Boolean) -> Unit = {}
+    onSearchFocus: (Boolean) -> Unit = {},
+    onSwipeUp: () -> Unit = {},
+    onSwipeDown: () -> Unit = {}
 ) {
     val theme = LocalSettingsTheme.current.theme
     val fieldBg = if (theme.isDark) Color(0xFF2B2B2B) else Color(0xFFEDEDF2)
@@ -102,22 +110,52 @@ fun LabEmojiGifPanel(
         modifier = Modifier
             .fillMaxWidth()
             .height(height)
-            .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+            .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
             .background(theme.surfaceColor)
     ) {
-        Crossfade(targetState = tab, label = "panel_tab") { t ->
-            when (t) {
-                PanelTab.EMOJI -> EmojiTab(recentEmojis, onEmoji, fieldBg, onSearchFocus)
-                PanelTab.GIF -> GifTab(onGif, fieldBg, onSearchFocus)
-                PanelTab.STICKERS -> StickersTab(recentStickers, onSticker)
+        // محتوى التبويب: انتقال انسحابي أفقي حسب اتجاه التبويب
+        Box(Modifier.fillMaxSize().padding(top = 20.dp)) {
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                    (slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { dir * it / 3 } + fadeIn(tween(220))) togetherWith
+                        (slideOutHorizontally(tween(280, easing = FastOutSlowInEasing)) { -dir * it / 3 } + fadeOut(tween(160)))
+                },
+                label = "panel_tab"
+            ) { t ->
+                when (t) {
+                    PanelTab.EMOJI -> EmojiTab(recentEmojis, onEmoji, fieldBg, onSearchFocus)
+                    PanelTab.GIF -> GifTab(onGif, fieldBg, onSearchFocus)
+                    PanelTab.STICKERS -> StickersTab()
+                }
             }
+        }
+        // مقبض السحب: اسحب للأعلى لرفع اللوحة، وللأسفل لخفضها/إغلاقها
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(22.dp)
+                .pointerInput(Unit) {
+                    var total = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { total = 0f },
+                        onDragEnd = { if (total < -30f) onSwipeUp() else if (total > 30f) onSwipeDown() },
+                        onDragCancel = {},
+                        onVerticalDrag = { _, dy -> total += dy }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Box(Modifier.width(34.dp).height(4.dp).clip(CircleShape).background(theme.textSecondary.copy(alpha = 0.45f)))
         }
         // الشريط السفلي: ترتيب (إيموجي | GIF | ملصقات) من اليسار لليمين كما في تيليجرام، ويختفي أثناء البحث
         AnimatedVisibility(
             visible = showTabBar,
             modifier = Modifier.align(Alignment.BottomCenter),
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it }
+            enter = fadeIn(tween(180)) + slideInVertically(tween(260, easing = FastOutSlowInEasing)) { it },
+            exit = fadeOut(tween(140)) + slideOutVertically(tween(220, easing = FastOutSlowInEasing)) { it }
         ) {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 Row(
@@ -132,7 +170,7 @@ fun LabEmojiGifPanel(
                         onSelect = { tab = PanelTab.values()[it] },
                         modifier = Modifier.weight(1f)
                     )
-                    if (tab != PanelTab.GIF) {
+                    if (tab == PanelTab.EMOJI) {
                         Spacer(Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
@@ -140,15 +178,10 @@ fun LabEmojiGifPanel(
                                 .shadow(4.dp, CircleShape)
                                 .clip(CircleShape)
                                 .background(barColor())
-                                .clickable { if (tab == PanelTab.EMOJI) onBackspace() else onClearStickers() },
+                                .clickable { onBackspace() },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                if (tab == PanelTab.EMOJI) Icons.AutoMirrored.Outlined.Backspace else Icons.Outlined.Settings,
-                                contentDescription = null,
-                                tint = theme.textPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Icon(Icons.AutoMirrored.Outlined.Backspace, contentDescription = null, tint = theme.textPrimary, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -176,7 +209,7 @@ private fun PanelTabBar(selected: Int, labels: List<String>, onSelect: (Int) -> 
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val w = maxWidth / labels.size
-            val off by animateDpAsState(w * selected, spring(dampingRatio = 0.75f, stiffness = 400f), label = "panel_pill")
+            val off by animateDpAsState(w * selected, spring(dampingRatio = 0.8f, stiffness = 380f), label = "panel_pill")
             Box(
                 Modifier
                     .offset(x = off)
@@ -252,18 +285,20 @@ private fun EmojiTab(recent: List<String>, onEmoji: (String) -> Unit, fieldBg: C
     val accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
     var query by remember { mutableStateOf("") }
     var cat by remember { mutableIntStateOf(1) } // 0 = المستخدمة حديثًا
-    val list: List<String> = when {
-        query.isNotBlank() -> {
-            val q = query.trim().lowercase()
-            EMOJI_KEYWORDS.filterKeys { it.contains(q) || q.contains(it) }.values
-                .flatMap { EmojiMessageUtils.splitGraphemes(it) }.distinct()
+    val list: List<String> = remember(query, cat, recent) {
+        when {
+            query.isNotBlank() -> {
+                val q = query.trim().lowercase()
+                EMOJI_KEYWORDS.filterKeys { it.contains(q) || q.contains(it) }.values
+                    .flatMap { EmojiMessageUtils.splitGraphemes(it) }.distinct()
+            }
+            cat == 0 -> recent
+            else -> EMOJI_CATEGORIES[cat - 1].emojis
         }
-        cat == 0 -> recent
-        else -> EMOJI_CATEGORIES[cat - 1].emojis
     }
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 6.dp),
+            Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             CatIcon(Icons.Outlined.AccessTime, cat == 0, accent, theme.textSecondary, fieldBg) { cat = 0; query = "" }
@@ -288,7 +323,7 @@ private fun EmojiTab(recent: List<String>, onEmoji: (String) -> Unit, fieldBg: C
                 contentPadding = PaddingValues(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 56.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(list) { em ->
+                items(list, key = { it }) { em ->
                     Box(
                         Modifier.aspectRatio(1f).clip(CircleShape).clickable { onEmoji(em) },
                         contentAlignment = Alignment.Center
@@ -346,7 +381,6 @@ private fun GifTab(onGif: (GifItem) -> Unit, fieldBg: Color, onSearchFocus: (Boo
         Icons.Outlined.Celebration to "party", Icons.Outlined.WavingHand to "hello", Icons.Outlined.SentimentSatisfiedAlt to "happy"
     )
     Column(Modifier.fillMaxSize()) {
-        Spacer(Modifier.height(4.dp))
         SearchBar(query, { query = it }, "Search KLIPY", fieldBg, onFocus = onSearchFocus) {
             quick.forEach { (ic, kw) ->
                 Icon(
@@ -359,7 +393,7 @@ private fun GifTab(onGif: (GifItem) -> Unit, fieldBg: Color, onSearchFocus: (Boo
             Box(Modifier.fillMaxSize().padding(bottom = 56.dp, start = 24.dp, end = 24.dp), contentAlignment = Alignment.Center) {
                 Text(
                     if (loading) "جارٍ التحميل…" else (error ?: ""),
-                    color = theme.textSecondary, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    color = theme.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center
                 )
             }
         } else {
@@ -398,45 +432,24 @@ private fun GifTab(onGif: (GifItem) -> Unit, fieldBg: Color, onSearchFocus: (Boo
     }
 }
 
+/** تبويب الملصقات: فارغ حاليًا (لا توجد ملصقات في هذا التطبيق). */
 @Composable
-private fun StickersTab(recent: List<String>, onSticker: (String) -> Unit) {
+private fun StickersTab() {
     val theme = LocalSettingsTheme.current.theme
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(6),
-        contentPadding = PaddingValues(start = 10.dp, top = 12.dp, end = 10.dp, bottom = 56.dp),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        item(span = { GridItemSpan(6) }) {
-            Text("الملصقات الشائعة", color = theme.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(6.dp))
+    Box(Modifier.fillMaxSize().padding(bottom = 56.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Outlined.StickyNote2, contentDescription = null, tint = theme.textSecondary.copy(alpha = 0.6f), modifier = Modifier.size(44.dp))
+            Spacer(Modifier.height(8.dp))
+            Text("لا توجد ملصقات", color = theme.textSecondary, fontSize = 14.sp)
         }
-        items(POPULAR_STICKERS) { em -> StickerCell(em, onSticker) }
-        if (recent.isNotEmpty()) {
-            item(span = { GridItemSpan(6) }) {
-                Text("مستخدمة حديثًا", color = theme.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 6.dp, top = 12.dp, end = 6.dp, bottom = 4.dp))
-            }
-            items(recent) { em -> StickerCell(em, onSticker) }
-        }
-    }
-}
-
-@Composable
-private fun StickerCell(emoji: String, onSticker: (String) -> Unit) {
-    val url = remember(emoji) { NotoEmojiMap.remoteUrlFor(emoji) }
-    Box(
-        Modifier.aspectRatio(1f).clip(RoundedCornerShape(12.dp)).clickable { onSticker(emoji) },
-        contentAlignment = Alignment.Center
-    ) {
-        if (url != null) com.example.ui.LottieEmojiReaction(url = url, size = 44.dp, loopForever = false)
-        else Text(emoji, fontSize = 34.sp)
     }
 }
 
 /** سهم رفع/خفض اللوحة (يظهر بجانب علامة + عند فتح لوحة الإيموجي) */
 @Composable
 fun PanelExpandChevron(expanded: Boolean, onClick: () -> Unit) {
-    val theme = LocalSettingsTheme.current.theme
     val rot by androidx.compose.animation.core.animateFloatAsState(
-        if (expanded) 180f else 0f, spring(dampingRatio = 0.8f, stiffness = 400f), label = "chevron_rot"
+        if (expanded) 180f else 0f, tween(300, easing = FastOutSlowInEasing), label = "chevron_rot"
     )
     Box(
         Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onClick),

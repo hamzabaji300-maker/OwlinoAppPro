@@ -36,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,14 +89,33 @@ class MainActivity : ComponentActivity() {
                     LocalSettingsTheme provides themeConfig,
                     LocalTranslation provides translation
                 ) {
-                    if (open == null) {
-                        HomeScreen(buttons, isDark = isDark, onToggleDark = { toggleDarkMode(ctx) }) { openKind = it.name }
-                    } else {
-                        LabMessagesScreen(
-                            state = states.getValue(open),
-                            onBack = { openKind = null },
-                            forwardTargets = states.values.filter { it.kind != open }
-                        )
+                    androidx.compose.animation.AnimatedContent(
+                        targetState = open,
+                        transitionSpec = {
+                            val ease = androidx.compose.animation.core.FastOutSlowInEasing
+                            if (targetState != null) {
+                                (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(340, easing = ease)) { it } +
+                                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240))) togetherWith
+                                    (androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween(340, easing = ease)) { -it / 3 } +
+                                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(240)))
+                            } else {
+                                (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(340, easing = ease)) { -it / 3 } +
+                                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240))) togetherWith
+                                    (androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween(340, easing = ease)) { it } +
+                                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(240)))
+                            }
+                        },
+                        label = "screen_transition"
+                    ) { shown ->
+                        if (shown == null) {
+                            HomeScreen(buttons, isDark = isDark, onToggleDark = { toggleDarkMode(ctx) }) { openKind = it.name }
+                        } else {
+                            LabMessagesScreen(
+                                state = states.getValue(shown),
+                                onBack = { openKind = null },
+                                forwardTargets = states.values.filter { it.kind != shown }
+                            )
+                        }
                     }
                 }
             }

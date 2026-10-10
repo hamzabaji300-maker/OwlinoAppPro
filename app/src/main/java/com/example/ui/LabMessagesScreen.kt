@@ -341,7 +341,7 @@ fun LabMessagesScreen(
     val expandedH = (configuration.screenHeightDp * 0.82f).dp
     val panelHeight by androidx.compose.animation.core.animateDpAsState(
         targetValue = if (state.panelExpanded || state.panelSearchActive) expandedH else collapsedH,
-        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 330f),
+        animationSpec = androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         label = "panel_height"
     )
 
@@ -505,18 +505,32 @@ fun LabMessagesScreen(
                                 ReplyKeyboardToggle(active = state.showReplyKb, onClick = { state.showReplyKb = !state.showReplyKb })
                             }) else null
                         )
-                        if (state.showPanel) {
+                        // فتح/إغلاق انسحابي: تنزلق اللوحة من الأسفل مع توسّع ناعم
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = state.showPanel,
+                            enter = androidx.compose.animation.expandVertically(
+                                animationSpec = androidx.compose.animation.core.tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                expandFrom = Alignment.Top
+                            ) + androidx.compose.animation.slideInVertically(
+                                animationSpec = androidx.compose.animation.core.tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                            ) { it / 2 } + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)),
+                            exit = androidx.compose.animation.shrinkVertically(
+                                animationSpec = androidx.compose.animation.core.tween(250, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                shrinkTowards = Alignment.Top
+                            ) + androidx.compose.animation.slideOutVertically(
+                                animationSpec = androidx.compose.animation.core.tween(250, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                            ) { it / 2 } + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
+                        ) {
                             LabEmojiGifPanel(
                                 height = panelHeight,
                                 recentEmojis = state.recentEmojis,
-                                recentStickers = state.recentStickers,
                                 onEmoji = { state.addEmoji(it) },
                                 onBackspace = { state.backspace() },
                                 onGif = { state.sendGif(it, scope) },
-                                onSticker = { state.sendSticker(it, scope) },
-                                onClearStickers = { state.recentStickers.clear() },
                                 showTabBar = !state.panelSearchActive,
-                                onSearchFocus = { state.panelSearchActive = it }
+                                onSearchFocus = { state.panelSearchActive = it },
+                                onSwipeUp = { state.panelExpanded = true },
+                                onSwipeDown = { if (state.panelExpanded) state.panelExpanded = false else state.closePanel() }
                             )
                         }
                         if (kind.isBot && replyKeyboardRows != null && state.showReplyKb) {
