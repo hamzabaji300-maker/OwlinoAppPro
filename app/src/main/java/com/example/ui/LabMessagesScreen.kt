@@ -84,6 +84,37 @@ class LabChatState(val kind: LabKind) {
     var toast by mutableStateOf<ToastNotification?>(null)
     var highlightedId by mutableStateOf<String?>(null)
     var deletingIds by mutableStateOf<Set<String>>(emptySet())
+    var showPanel by mutableStateOf(false)
+    val recentEmojis = mutableStateListOf<String>()
+    val recentStickers = mutableStateListOf<String>()
+
+    private fun pushRecent(list: MutableList<String>, item: String, max: Int) {
+        list.remove(item); list.add(0, item)
+        while (list.size > max) list.removeAt(list.size - 1)
+    }
+
+    fun addEmoji(e: String) { text += e; pushRecent(recentEmojis, e, 32) }
+
+    fun backspace() {
+        val g = com.example.emoji.EmojiMessageUtils.splitGraphemes(text)
+        text = g.dropLast(1).joinToString("")
+    }
+
+    /** إرسال GIF: رسالة بمرفق صورة برابط الـ GIF (كما في الأصل). */
+    fun sendGif(gif: com.example.util.GifItem, scope: CoroutineScope) {
+        val id = UUID.randomUUID().toString()
+        val att = Attachment(messageId = id, type = AttachmentType.IMAGE, url = gif.url, aspectRatio = gif.aspectRatio)
+        showPanel = false
+        messages += labMsg(kind, "", true, attachments = listOf(att), id = id, views = if (kind.isChannel) "1" else null)
+        simulateReply(scope, "", attachmentName = "GIF")
+    }
+
+    /** إرسال ملصق: إيموجي وحده في رسالة، فتعرضه الفقاعة كإيموجي متحرك كبير. */
+    fun sendSticker(emoji: String, scope: CoroutineScope) {
+        pushRecent(recentStickers, emoji, 20)
+        messages += labMsg(kind, emoji, true, views = if (kind.isChannel) "1" else null)
+        simulateReply(scope, emoji)
+    }
 
     /** حذف مع حركة التضبيب/التفتت ثم الإزالة الفعلية بعد انتهائها. */
     fun deleteWithEffect(ids: Set<String>, scope: CoroutineScope) {
@@ -294,8 +325,15 @@ fun LabMessagesScreen(
     val pinned = snapshot.filter { it.isPinned }
     var pinIndex by remember { mutableStateOf(0) }
     val isSelectionMode = state.selected.isNotEmpty()
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val imeVisible = WindowInsets.isImeVisible
+    val panelHeight = (configuration.screenHeightDp * 0.42f).dp
 
     BackHandler(enabled = isSelectionMode) { state.selected = emptySet() }
+    BackHandler(enabled = state.showPanel && !isSelectionMode) { state.showPanel = false }
+    // عند ظهور لوحة المفاتيح تُغلق اللوحة (يتبادلان نفس المكان)
+    LaunchedEffect(imeVisible) { if (imeVisible) state.showPanel = false }
 
     Box(modifier = Modifier.fillMaxSize()) {
         ChatWallpaper()
@@ -414,6 +452,14 @@ fun LabMessagesScreen(
                             text = state.text,
                             onTextChange = { state.text = it },
                             onSend = { state.sendText(scope) },
+                            onOpenGifPicker = {
+                                if (state.showPanel) state.showPanel = false
+                                else {
+                                    focusManager.clearFocus()
+                                    keyboard?.hide()
+                                    state.showPanel = true
+                                }
+                            },
                             onAttachmentSelected = { uris, type -> state.sendAttachments(context, scope, uris, type) },
                             replyingTo = state.replyingTo,
                             onCancelReply = { state.replyingTo = null },
@@ -426,6 +472,18 @@ fun LabMessagesScreen(
                                 ReplyKeyboardToggle(active = state.showReplyKb, onClick = { state.showReplyKb = !state.showReplyKb })
                             }) else null
                         )
+                        if (state.showPanel) {
+                            LabEmojiGifPanel(
+                                height = panelHeight,
+                                recentEmojis = state.recentEmojis,
+                                recentStickers = state.recentStickers,
+                                onEmoji = { state.addEmoji(it) },
+                                onBackspace = { state.backspace() },
+                                onGif = { state.sendGif(it, scope) },
+                                onSticker = { state.sendSticker(it, scope) },
+                                onClearStickers = { state.recentStickers.clear() }
+                            )
+                        }
                         if (kind.isBot && replyKeyboardRows != null && state.showReplyKb) {
                             ReplyKeyboardGrid(rows = replyKeyboardRows, onKey = { k ->
                                 state.messages += labMsg(kind, k, true)

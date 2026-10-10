@@ -19,6 +19,8 @@ jobs:
         with:
           gradle-version: '8.9'
       - run: gradle assembleDebug --stacktrace
+        env:
+          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: lab-${{ github.run_number }}

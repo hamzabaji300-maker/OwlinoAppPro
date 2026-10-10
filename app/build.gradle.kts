@@ -5,6 +5,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// مفتاح Klipy لميزة GIF: من ملف klipy.key (بجانب مجلد app) أو متغير البيئة KLIPY_API_KEY (للبناء الآلي)
+val klipyApiKey: String = (file("../klipy.key").takeIf { it.exists() }?.readText()?.trim()
+    ?: System.getenv("KLIPY_API_KEY")?.trim()
+    ?: "")
+
 android {
     namespace = "com.example"
     compileSdk = 35
@@ -16,6 +21,7 @@ android {
         versionCode = 1
         versionName = "lab-1"
         vectorDrawables { useSupportLibrary = true }
+        buildConfigField("String", "KLIPY_API_KEY", "\"$klipyApiKey\"")
     }
 
     buildTypes {
