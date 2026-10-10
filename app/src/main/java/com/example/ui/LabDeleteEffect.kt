@@ -27,6 +27,11 @@ import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/** يُبلغ الشاشة بسبب فشل التفتيت (يظهر كإشعار) كي نعرف السبب الحقيقي على جهازك. */
+object DustDebug {
+    @Volatile var onError: ((String) -> Unit)? = null
+}
+
 /** مدة حركة الحذف بالملّي ثانية (يستخدمها LabChatState قبل إزالة الرسالة فعليًا). */
 const val DELETE_EFFECT_MS = 1300
 
@@ -101,10 +106,13 @@ fun Modifier.dissolveOnDelete(active: Boolean): Modifier = composed {
             withFrameNanos { }
             withFrameNanos { }
             try {
-                dust = buildDust(layer.toImageBitmap())
+                val img = layer.toImageBitmap()
+                dust = buildDust(img)
                 failed = dust == null
+                if (dust == null) DustDebug.onError?.invoke("التفتيت: الصورة الملتقطة فارغة (${img.width}x${img.height})")
             } catch (e: Throwable) {
                 failed = true
+                DustDebug.onError?.invoke("التفتيت فشل: ${e.javaClass.simpleName}: ${e.message}")
             }
             progress.snapTo(0f)
             progress.animateTo(1f, tween(DELETE_EFFECT_MS, easing = LinearEasing))

@@ -148,10 +148,7 @@ fun MessageBubble(
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 msg.reactions.forEach { emoji ->
-                    val reactionUrl = NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji))
-                    if (reactionUrl != null) {
-                        LottieEmojiReaction(url = reactionUrl, size = 34.dp)
-                    }
+                    StaticEmoji(NotoEmojiMap.reactionToEmoji(emoji), 34.dp)
                 }
             }
             Spacer(Modifier.width(3.dp))
@@ -333,7 +330,7 @@ fun MessageBubble(
                             .padding(start = 5.dp, end = 4.dp, top = 0.dp, bottom = 0.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(msg.time, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Normal, color = Color.White)
+                        MsgTimeText(msg.time, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Normal, color = Color.White)
                         MessageIndicators(
                             isMe = isMe,
                             status = msg.status,
@@ -411,7 +408,7 @@ fun MessageBubble(
                                 .padding(start = 5.dp, end = 4.dp, top = 0.dp, bottom = 0.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(msg.time, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Normal, color = Color.White)
+                            MsgTimeText(msg.time, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Normal, color = Color.White)
                             MessageIndicators(
                                 isMe = isMe,
                                 status = msg.status,
@@ -475,7 +472,7 @@ fun MessageBubble(
                         Row(modifier = Modifier.fillMaxWidth().padding(top=2.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text(if (isThis && (playing || posMs > 0)) fmt(posMs) else fmt(totalMs), fontSize = 11.sp, color = timeColor)
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(msg.time, fontSize = 10.sp, color = timeColor)
+                                MsgTimeText(msg.time, fontSize = 10.sp, color = timeColor)
                                 MessageIndicators(
                                     isMe = isMe,
                                     status = msg.status,
@@ -536,7 +533,7 @@ fun MessageBubble(
                                 modifier = Modifier.align(Alignment.Bottom),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                                MsgTimeText(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
                                 MessageIndicators(
                                     isMe = isMe,
                                     status = msg.status,
@@ -569,7 +566,7 @@ fun MessageBubble(
                                     .padding(top = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                                MsgTimeText(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
                                 MessageIndicators(
                                     isMe = isMe,
                                     status = msg.status,
@@ -592,10 +589,7 @@ fun MessageBubble(
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 msg.reactions.forEach { emoji ->
-                    val reactionUrl = NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji))
-                    if (reactionUrl != null) {
-                        LottieEmojiReaction(url = reactionUrl, size = 34.dp)
-                    }
+                    StaticEmoji(NotoEmojiMap.reactionToEmoji(emoji), 34.dp)
                 }
             }
         }
@@ -675,12 +669,7 @@ fun ChannelPostCard(
                     ) {
                         val topFour = msg.channelReactions.sortedByDescending { it.count }.take(4)
                         topFour.forEach { reaction ->
-                            val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
-                            if (url != null) {
-                                LottieEmojiReaction(url = url, size = 17.dp)
-                            } else {
-                                Text(reaction.emoji, fontSize = 13.sp)
-                            }
+                            Text(reaction.emoji, fontSize = 13.sp)
                         }
                         val totalLabel = msg.totalInteractionsLabel
                             ?: formatReactionCount(msg.channelReactions.sumOf { it.count })
@@ -698,10 +687,7 @@ fun ChannelPostCard(
                             .padding(horizontal = 8.dp, vertical = 5.dp)
                     ) {
                         msg.reactions.forEach { emoji ->
-                            val myUrl = remember(emoji) { NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji)) }
-                            if (myUrl != null) {
-                                LottieEmojiReaction(url = myUrl, size = 16.dp)
-                            }
+                            StaticEmoji(NotoEmojiMap.reactionToEmoji(emoji), 18.dp)
                         }
                     }
                 }
@@ -756,12 +742,7 @@ fun ReactionBreakdownDialog(
                                 Text(formatReactionCount(reaction.count), color = __theme.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.width(6.dp))
                             }
-                            val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
-                            if (url != null) {
-                                LottieEmojiReaction(url = url, size = 20.dp)
-                            } else {
-                                Text(reaction.emoji, fontSize = 16.sp)
-                            }
+                            Text(reaction.emoji, fontSize = 16.sp)
                         }
                     }
                     repeat(3 - rowItems.size) {
@@ -1511,7 +1492,7 @@ fun FileBubbleContent(
                         modifier = Modifier.weight(1f)
                     )
                     if (caption.isBlank()) {
-                        Text(msg.time, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                        MsgTimeText(msg.time, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Medium, color = timeColor)
                         MessageIndicators(
                             isMe = isMe,
                             status = msg.status,
@@ -1540,7 +1521,7 @@ fun FileBubbleContent(
                 modifier = Modifier.align(Alignment.End),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(msg.time, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                MsgTimeText(msg.time, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = timeColor)
                 MessageIndicators(
                     isMe = isMe,
                     status = msg.status,
@@ -1615,7 +1596,7 @@ fun VideoBubbleContent(
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(msg.time, fontSize = 10.sp, color = Color.White)
+            MsgTimeText(msg.time, fontSize = 10.sp, color = Color.White)
             MessageIndicators(
                 isMe = isMe,
                 status = msg.status,

@@ -142,9 +142,7 @@ fun MessageContextMenuOverlay(
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    if (reactionUrl != null) {
-                                        LottieEmojiReaction(url = reactionUrl, size = 38.dp)
-                                    }
+                                    StaticEmoji(reaction, 38.dp)
                                 }
                             }
                         }
@@ -185,9 +183,7 @@ fun MessageContextMenuOverlay(
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (reactionUrl != null) {
-                                    LottieEmojiReaction(url = reactionUrl, size = 32.dp)
-                                }
+                                StaticEmoji(reaction, 32.dp)
                             }
                         }
                     }
@@ -377,9 +373,7 @@ fun FullEmojiPickerDialog(
                             ) { onEmojiPicked(emoji) },
                         contentAlignment = Alignment.Center
                     ) {
-                        if (url != null) {
-                            LottieEmojiReaction(url = url, size = 32.dp)
-                        }
+                        StaticEmoji(emoji, 32.dp)
                     }
                 }
             }

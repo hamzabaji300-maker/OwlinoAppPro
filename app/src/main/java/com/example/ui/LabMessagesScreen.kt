@@ -381,6 +381,11 @@ fun LabMessagesScreen(
         label = "panel_height"
     )
 
+    // إن فشل تفتيت الفقاعة لأي سبب يظهر إشعار بالسبب بدل الفشل الصامت
+    DisposableEffect(state) {
+        DustDebug.onError = { msg -> state.showToast(msg, ToastType.INFO) }
+        onDispose { DustDebug.onError = null }
+    }
     BackHandler(enabled = isSelectionMode) { state.selected = emptySet() }
     BackHandler(enabled = state.showPanel && !isSelectionMode) {
         if (state.panelExpanded) state.panelExpanded = false else state.closePanel()

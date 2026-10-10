@@ -175,7 +175,7 @@ fun PollBubbleContent(msg: MessageModel, isMe: Boolean, textColor: Color, accent
                 if (total == 0) "لا توجد أصوات بعد" else "$total صوت",
                 color = textColor.copy(alpha = 0.6f), fontSize = 12.sp, modifier = Modifier.weight(1f)
             )
-            Text(msg.time, color = textColor.copy(alpha = 0.6f), fontSize = 12.sp)
+            MsgTimeText(msg.time, fontSize = 12.sp, color = textColor.copy(alpha = 0.6f))
         }
         // منشور القناة: صف التعليقات كما في تيليجرام
         if (channelAuthor != null) {
