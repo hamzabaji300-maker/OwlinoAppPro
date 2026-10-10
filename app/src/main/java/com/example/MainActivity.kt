@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material.icons.outlined.Chat
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Icon
@@ -87,7 +89,7 @@ class MainActivity : ComponentActivity() {
                     LocalTranslation provides translation
                 ) {
                     if (open == null) {
-                        HomeScreen(buttons) { openKind = it.name }
+                        HomeScreen(buttons, isDark = isDark, onToggleDark = { toggleDarkMode(ctx) }) { openKind = it.name }
                     } else {
                         LabMessagesScreen(
                             state = states.getValue(open),
@@ -103,10 +105,29 @@ class MainActivity : ComponentActivity() {
 
 /** الشاشة الأولى: أربعة أزرار فقط، كل زر يفتح شاشة الرسائل الخاصة به. */
 @androidx.compose.runtime.Composable
-private fun HomeScreen(buttons: List<HomeButton>, onClick: (LabKind) -> Unit) {
+private fun HomeScreen(buttons: List<HomeButton>, isDark: Boolean, onToggleDark: () -> Unit, onClick: (LabKind) -> Unit) {
     val theme = LocalSettingsTheme.current.theme
     Box(Modifier.fillMaxSize()) {
         ChatWallpaper()
+        // زر الوضع الليلي/النهاري لمعاينة الشاشات في الحالتين
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .safeDrawingPadding()
+                .padding(16.dp)
+                .size(46.dp)
+                .clip(CircleShape)
+                .background(theme.surfaceColor)
+                .clickable { onToggleDark() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                if (isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                contentDescription = "Toggle dark mode",
+                tint = theme.textPrimary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
         Column(
             modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.Center
@@ -132,4 +153,13 @@ private fun HomeScreen(buttons: List<HomeButton>, onClick: (LabKind) -> Unit) {
             }
         }
     }
+}
+
+/** تبديل بين ثيم "Classic Light" و"Classic Dark" مع خلفية المحادثة الافتراضية لكل منهما. */
+private fun toggleDarkMode(context: android.content.Context) {
+    val cur = ThemeManager.loadSettingsTheme(context)
+    val toDark = !cur.theme.isDark
+    val theme = com.example.ui.AppThemes.firstOrNull { it.isDark == toDark } ?: return
+    val bg = if (toDark) Color(0xFF191919) else Color(0xFFF9FAFB)
+    ThemeManager.saveSettingsTheme(context, cur.copy(theme = theme, chatBackground = bg))
 }

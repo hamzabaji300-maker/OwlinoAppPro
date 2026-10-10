@@ -102,7 +102,6 @@ fun LabEmojiGifPanel(
         modifier = Modifier
             .fillMaxWidth()
             .height(height)
-            .padding(top = 8.dp)
             .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
             .background(theme.surfaceColor)
     ) {

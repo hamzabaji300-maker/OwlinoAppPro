@@ -537,7 +537,7 @@ fun AttachmentPickerPanel(
                                     LazyVerticalGrid(
                                         columns = GridCells.Fixed(2),
                                         modifier = Modifier.fillMaxSize(),
-                                        contentPadding = PaddingValues(6.dp, 6.dp, 6.dp, 92.dp),
+                                        contentPadding = PaddingValues(6.dp, 6.dp, 6.dp, 66.dp),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
@@ -573,7 +573,7 @@ fun AttachmentPickerPanel(
                                     LazyVerticalGrid(
                                         columns = GridCells.Fixed(3),
                                         modifier = Modifier.fillMaxSize(),
-                                        contentPadding = PaddingValues(2.dp, 2.dp, 2.dp, 92.dp),
+                                        contentPadding = PaddingValues(2.dp, 2.dp, 2.dp, 66.dp),
                                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                                         verticalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
@@ -641,7 +641,7 @@ fun AttachmentPickerPanel(
                                             )
                                             selectedUris.clear()
                                         },
-                                        modifier = Modifier.align(Alignment.BottomEnd).padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 92.dp),
+                                        modifier = Modifier.align(Alignment.BottomEnd).padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 66.dp),
                                         containerColor = Color(0xFF4CAF50),
                                         contentColor = Color.White
                                     ) {
@@ -749,7 +749,7 @@ fun AttachmentPickerPanel(
                                         }
                                     }
                                 } else {
-                                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 92.dp)) {
+                                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 66.dp)) {
                                         items(dirEntries, key = { it.absolutePath }) { entry ->
                                             Row(
                                                 modifier = Modifier
@@ -823,32 +823,31 @@ private fun PickerBottomBar(
     modifier: Modifier = Modifier,
     onSelect: (AttachmentPickerTab) -> Unit
 ) {
-    val cfg = LocalSettingsTheme.current
-    val theme = cfg.theme
+    val theme = LocalSettingsTheme.current.theme
     val accent = MaterialTheme.colorScheme.primary
+    // (التبويب، الأيقونة، العنوان، تدرّج لون الشارة) — شارات ملوّنة بدل أيقونات رمادية
     val items = listOf(
-        Triple(AttachmentPickerTab.PHOTOS, Icons.Outlined.Image, "المعرض"),
-        Triple(AttachmentPickerTab.VIDEOS, Icons.Outlined.Videocam, "الفيديو"),
-        Triple(AttachmentPickerTab.FILES, Icons.Outlined.Description, "ملف")
+        listOf(AttachmentPickerTab.PHOTOS, Icons.Outlined.Image, "المعرض", Color(0xFF34D399), Color(0xFF059669)),
+        listOf(AttachmentPickerTab.VIDEOS, Icons.Outlined.Videocam, "الفيديو", Color(0xFFFB7185), Color(0xFFE11D48)),
+        listOf(AttachmentPickerTab.FILES, Icons.Outlined.Description, "ملف", Color(0xFF60A5FA), Color(0xFF2563EB))
     )
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
-    val selIndex = items.indexOfFirst { it.first == selected }.coerceAtLeast(0)
-    val barBg = if (theme.isDark) Color(0xFF1F1F1F).copy(alpha = 0.96f) else Color(0xFFF2F2F7).copy(alpha = 0.96f)
+    val selIndex = items.indexOfFirst { it[0] == selected }.coerceAtLeast(0)
+    val barBg = if (theme.isDark) Color(0xFF1F1F1F).copy(alpha = 0.97f) else Color(0xFFF2F2F7).copy(alpha = 0.97f)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
-            .height(58.dp)
-            .shadow(8.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.25f))
+            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
+            .height(46.dp)   // بنفس ارتفاع كارد الكتابة تقريبًا
+            .shadow(4.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.2f), spotColor = Color.Black.copy(alpha = 0.2f))
             .clip(CircleShape)
             .background(barBg)
-            .padding(4.dp)
+            .padding(3.dp)
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val tabWidth = maxWidth / items.size
             val visualIndex = if (rtl) items.size - 1 - selIndex else selIndex
-            // المؤشر المنزلق: نفس spring الخاص بالشريط السفلي في مشروعك
             val indicatorOffset by androidx.compose.animation.core.animateDpAsState(
                 targetValue = tabWidth * visualIndex,
                 animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 400f),
@@ -860,15 +859,20 @@ private fun PickerBottomBar(
                     .width(tabWidth)
                     .fillMaxHeight()
                     .clip(CircleShape)
-                    .background(accent.copy(alpha = if (theme.isDark) 0.30f else 0.18f))
+                    .background(accent.copy(alpha = if (theme.isDark) 0.28f else 0.16f))
             )
             Row(modifier = Modifier.fillMaxSize()) {
-                items.forEach { (tab, icon, label) ->
+                items.forEach { item ->
+                    val tab = item[0] as AttachmentPickerTab
+                    val icon = item[1] as ImageVector
+                    val label = item[2] as String
+                    val c1 = item[3] as Color
+                    val c2 = item[4] as Color
                     val isSel = tab == selected
                     val tint by androidx.compose.animation.animateColorAsState(
                         if (isSel) accent else theme.textSecondary, label = "picker_tint"
                     )
-                    Column(
+                    Row(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
@@ -877,11 +881,18 @@ private fun PickerBottomBar(
                                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                                 indication = null
                             ) { onSelect(tab) },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(24.dp))
-                        Text(label, color = tint, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                        Box(
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(c1, c2))),
+                            contentAlignment = Alignment.Center
+                        ) { Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(16.dp)) }
+                        Spacer(Modifier.width(6.dp))
+                        Text(label, color = tint, fontSize = 12.sp, fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
                     }
                 }
             }
@@ -916,7 +927,7 @@ private fun PickerTabButton(
 
 @Composable
 private fun RecentFilesList(files: List<RecentFileItem>, onFileClick: (Uri) -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 92.dp)) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 66.dp)) {
         items(files, key = { it.id }) { file ->
             Row(
                 modifier = Modifier

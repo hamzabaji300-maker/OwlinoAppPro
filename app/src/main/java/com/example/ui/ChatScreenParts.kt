@@ -849,7 +849,9 @@ fun MessageInputBar(
     onCancelEdit: () -> Unit,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
-    onOpenGifPicker: () -> Unit = {}
+    onOpenGifPicker: () -> Unit = {},
+    closeAttachmentSignal: Int = 0,
+    onAttachmentPanelToggle: (Boolean) -> Unit = {}
 ) {
     var isRecording by remember { mutableStateOf(false) }
     var isLocked by remember { mutableStateOf(false) }
@@ -860,6 +862,8 @@ fun MessageInputBar(
     // Telegram-style attachment panel: swaps in place of the keyboard instead of
     // opening a floating dialog.
     var showAttachmentPanel by remember { mutableStateOf(false) }
+    // إغلاق لوحة المرفقات من الخارج (عند فتح لوحة الإيموجي) حتى لا تفتحا معًا
+    LaunchedEffect(closeAttachmentSignal) { if (closeAttachmentSignal > 0) showAttachmentPanel = false }
     val screenHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
     val minPanelHeight = screenHeightDp * 0.75f
     var capturedKeyboardHeight by remember { mutableStateOf(minPanelHeight) }
@@ -1052,10 +1056,12 @@ fun MessageInputBar(
                         onClick = {
                             if (showAttachmentPanel) {
                                 showAttachmentPanel = false
+                                onAttachmentPanelToggle(false)
                             } else {
                                 focusManager.clearFocus()
                                 keyboardController?.hide()
                                 showAttachmentPanel = true
+                                onAttachmentPanelToggle(true)
                             }
                         },
                         modifier = Modifier.size(40.dp)

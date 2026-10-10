@@ -86,6 +86,7 @@ class LabChatState(val kind: LabKind) {
     var deletingIds by mutableStateOf<Set<String>>(emptySet())
     var showPanel by mutableStateOf(false)
     var panelExpanded by mutableStateOf(false)
+    var closeAttachSignal by mutableStateOf(0)
     var panelSearchActive by mutableStateOf(false)
 
     fun closePanel() {
@@ -336,7 +337,7 @@ fun LabMessagesScreen(
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val imeVisible = WindowInsets.isImeVisible
-    val collapsedH = (configuration.screenHeightDp * 0.36f).dp
+    val collapsedH = (configuration.screenHeightDp * 0.42f).dp
     val expandedH = (configuration.screenHeightDp * 0.82f).dp
     val panelHeight by androidx.compose.animation.core.animateDpAsState(
         targetValue = if (state.panelExpanded || state.panelSearchActive) expandedH else collapsedH,
@@ -469,9 +470,12 @@ fun LabMessagesScreen(
                             text = state.text,
                             onTextChange = { state.text = it },
                             onSend = { state.sendText(scope) },
+                            closeAttachmentSignal = state.closeAttachSignal,
+                            onAttachmentPanelToggle = { open -> if (open) state.closePanel() },
                             onOpenGifPicker = {
                                 if (state.showPanel) state.closePanel()
                                 else {
+                                    state.closeAttachSignal++   // أغلق لوحة المرفقات أولًا
                                     focusManager.clearFocus()
                                     keyboard?.hide()
                                     state.showPanel = true
