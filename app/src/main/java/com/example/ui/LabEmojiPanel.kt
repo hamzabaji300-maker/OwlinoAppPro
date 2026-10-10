@@ -1,6 +1,11 @@
 package com.example.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -25,9 +30,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -83,7 +90,9 @@ fun LabEmojiGifPanel(
     onBackspace: () -> Unit,
     onGif: (GifItem) -> Unit,
     onSticker: (String) -> Unit,
-    onClearStickers: () -> Unit
+    onClearStickers: () -> Unit,
+    showTabBar: Boolean = true,
+    onSearchFocus: (Boolean) -> Unit = {}
 ) {
     val theme = LocalSettingsTheme.current.theme
     val fieldBg = if (theme.isDark) Color(0xFF2B2B2B) else Color(0xFFEDEDF2)
@@ -99,43 +108,49 @@ fun LabEmojiGifPanel(
     ) {
         Crossfade(targetState = tab, label = "panel_tab") { t ->
             when (t) {
-                PanelTab.EMOJI -> EmojiTab(recentEmojis, onEmoji, fieldBg)
-                PanelTab.GIF -> GifTab(onGif, fieldBg)
+                PanelTab.EMOJI -> EmojiTab(recentEmojis, onEmoji, fieldBg, onSearchFocus)
+                PanelTab.GIF -> GifTab(onGif, fieldBg, onSearchFocus)
                 PanelTab.STICKERS -> StickersTab(recentStickers, onSticker)
             }
         }
-        // الشريط السفلي: دائمًا بترتيب (إيموجي | GIF | ملصقات) من اليسار لليمين كما في تيليجرام
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                PanelTabBar(
-                    selected = tab.ordinal,
-                    labels = listOf("الرموز التعبيرية", "صور متحركة", "الملصقات"),
-                    onSelect = { tab = PanelTab.values()[it] },
-                    modifier = Modifier.weight(1f)
-                )
-                if (tab != PanelTab.GIF) {
-                    Spacer(Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .shadow(8.dp, CircleShape)
-                            .clip(CircleShape)
-                            .background(barColor())
-                            .clickable { if (tab == PanelTab.EMOJI) onBackspace() else onClearStickers() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            if (tab == PanelTab.EMOJI) Icons.AutoMirrored.Outlined.Backspace else Icons.Outlined.Settings,
-                            contentDescription = null,
-                            tint = theme.textPrimary,
-                            modifier = Modifier.size(26.dp)
-                        )
+        // الشريط السفلي: ترتيب (إيموجي | GIF | ملصقات) من اليسار لليمين كما في تيليجرام، ويختفي أثناء البحث
+        AnimatedVisibility(
+            visible = showTabBar,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it }
+        ) {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PanelTabBar(
+                        selected = tab.ordinal,
+                        labels = listOf("الرموز التعبيرية", "صور متحركة", "الملصقات"),
+                        onSelect = { tab = PanelTab.values()[it] },
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (tab != PanelTab.GIF) {
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .shadow(4.dp, CircleShape)
+                                .clip(CircleShape)
+                                .background(barColor())
+                                .clickable { if (tab == PanelTab.EMOJI) onBackspace() else onClearStickers() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                if (tab == PanelTab.EMOJI) Icons.AutoMirrored.Outlined.Backspace else Icons.Outlined.Settings,
+                                contentDescription = null,
+                                tint = theme.textPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -154,11 +169,11 @@ private fun PanelTabBar(selected: Int, labels: List<String>, onSelect: (Int) -> 
     val accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
     Box(
         modifier = modifier
-            .height(54.dp)
-            .shadow(8.dp, CircleShape)
+            .height(40.dp)
+            .shadow(4.dp, CircleShape)
             .clip(CircleShape)
             .background(barColor())
-            .padding(4.dp)
+            .padding(3.dp)
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val w = maxWidth / labels.size
@@ -184,7 +199,7 @@ private fun PanelTabBar(selected: Int, labels: List<String>, onSelect: (Int) -> 
                         Text(
                             l,
                             color = if (i == selected) accent else theme.textPrimary,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1
                         )
@@ -201,30 +216,31 @@ private fun SearchBar(
     onQuery: (String) -> Unit,
     hint: String,
     fieldBg: Color,
+    onFocus: (Boolean) -> Unit = {},
     trailing: @Composable RowScope.() -> Unit = {}
 ) {
     val theme = LocalSettingsTheme.current.theme
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .height(50.dp)
-            .clip(RoundedCornerShape(25.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .height(36.dp)
+            .clip(RoundedCornerShape(18.dp))
             .background(fieldBg)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Outlined.Search, contentDescription = null, tint = theme.textSecondary, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.width(10.dp))
+        Icon(Icons.Outlined.Search, contentDescription = null, tint = theme.textSecondary, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-            if (query.isEmpty()) Text(hint, color = theme.textSecondary, fontSize = 15.sp)
+            if (query.isEmpty()) Text(hint, color = theme.textSecondary, fontSize = 13.sp)
             BasicTextField(
                 value = query,
                 onValueChange = onQuery,
                 singleLine = true,
-                textStyle = TextStyle(color = theme.textPrimary, fontSize = 15.sp),
+                textStyle = TextStyle(color = theme.textPrimary, fontSize = 13.sp),
                 cursorBrush = SolidColor(theme.textPrimary),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().onFocusChanged { onFocus(it.isFocused) }
             )
         }
         trailing()
@@ -232,7 +248,7 @@ private fun SearchBar(
 }
 
 @Composable
-private fun EmojiTab(recent: List<String>, onEmoji: (String) -> Unit, fieldBg: Color) {
+private fun EmojiTab(recent: List<String>, onEmoji: (String) -> Unit, fieldBg: Color, onSearchFocus: (Boolean) -> Unit) {
     val theme = LocalSettingsTheme.current.theme
     val accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
     var query by remember { mutableStateOf("") }
@@ -248,36 +264,36 @@ private fun EmojiTab(recent: List<String>, onEmoji: (String) -> Unit, fieldBg: C
     }
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp),
+            Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             CatIcon(Icons.Outlined.AccessTime, cat == 0, accent, theme.textSecondary, fieldBg) { cat = 0; query = "" }
             Spacer(Modifier.width(6.dp))
             Row(
-                Modifier.weight(1f).clip(CircleShape).background(fieldBg).horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                Modifier.weight(1f).clip(CircleShape).background(fieldBg).horizontalScroll(rememberScrollState()).padding(horizontal = 3.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(1.dp)
             ) {
                 EMOJI_CATEGORIES.forEachIndexed { i, c ->
                     CatIcon(c.icon, cat == i + 1, accent, theme.textSecondary, Color.Transparent) { cat = i + 1; query = "" }
                 }
             }
         }
-        SearchBar(query, { query = it }, "بحث", fieldBg)
+        SearchBar(query, { query = it }, "بحث", fieldBg, onFocus = onSearchFocus)
         if (list.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(bottom = 90.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().padding(bottom = 56.dp), contentAlignment = Alignment.Center) {
                 Text(if (query.isNotBlank()) "لا توجد نتائج" else "لا توجد رموز مستخدمة حديثًا", color = theme.textSecondary, fontSize = 14.sp)
             }
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(8),
-                contentPadding = PaddingValues(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 100.dp),
+                contentPadding = PaddingValues(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 56.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(list) { em ->
                     Box(
                         Modifier.aspectRatio(1f).clip(CircleShape).clickable { onEmoji(em) },
                         contentAlignment = Alignment.Center
-                    ) { Text(em, fontSize = 28.sp) }
+                    ) { Text(em, fontSize = 26.sp) }
                 }
             }
         }
@@ -288,16 +304,16 @@ private fun EmojiTab(recent: List<String>, onEmoji: (String) -> Unit, fieldBg: C
 private fun CatIcon(icon: ImageVector, active: Boolean, accent: Color, inactive: Color, bg: Color, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(42.dp)
+            .size(30.dp)
             .clip(CircleShape)
             .background(if (active) accent.copy(alpha = 0.22f) else bg)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
-    ) { Icon(icon, contentDescription = null, tint = if (active) accent else inactive, modifier = Modifier.size(24.dp)) }
+    ) { Icon(icon, contentDescription = null, tint = if (active) accent else inactive, modifier = Modifier.size(18.dp)) }
 }
 
 @Composable
-private fun GifTab(onGif: (GifItem) -> Unit, fieldBg: Color) {
+private fun GifTab(onGif: (GifItem) -> Unit, fieldBg: Color, onSearchFocus: (Boolean) -> Unit) {
     val theme = LocalSettingsTheme.current.theme
     var query by remember { mutableStateOf("") }
     var gifs by remember { mutableStateOf<List<GifItem>>(emptyList()) }
@@ -331,17 +347,17 @@ private fun GifTab(onGif: (GifItem) -> Unit, fieldBg: Color) {
         Icons.Outlined.Celebration to "party", Icons.Outlined.WavingHand to "hello", Icons.Outlined.SentimentSatisfiedAlt to "happy"
     )
     Column(Modifier.fillMaxSize()) {
-        Spacer(Modifier.height(8.dp))
-        SearchBar(query, { query = it }, "Search KLIPY", fieldBg) {
+        Spacer(Modifier.height(4.dp))
+        SearchBar(query, { query = it }, "Search KLIPY", fieldBg, onFocus = onSearchFocus) {
             quick.forEach { (ic, kw) ->
                 Icon(
                     ic, contentDescription = null, tint = theme.textSecondary,
-                    modifier = Modifier.size(34.dp).clip(CircleShape).clickable { query = kw }.padding(5.dp)
+                    modifier = Modifier.size(26.dp).clip(CircleShape).clickable { query = kw }.padding(4.dp)
                 )
             }
         }
         if (gifs.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(bottom = 90.dp, start = 24.dp, end = 24.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().padding(bottom = 56.dp, start = 24.dp, end = 24.dp), contentAlignment = Alignment.Center) {
                 Text(
                     if (loading) "جارٍ التحميل…" else (error ?: ""),
                     color = theme.textSecondary, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -350,7 +366,7 @@ private fun GifTab(onGif: (GifItem) -> Unit, fieldBg: Color) {
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(start = 6.dp, top = 4.dp, end = 6.dp, bottom = 100.dp),
+                contentPadding = PaddingValues(start = 6.dp, top = 4.dp, end = 6.dp, bottom = 56.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.fillMaxSize()
@@ -358,8 +374,8 @@ private fun GifTab(onGif: (GifItem) -> Unit, fieldBg: Color) {
                 item(span = { GridItemSpan(2) }) {
                     Text(
                         if (query.isBlank()) "الصور المتحركة الشائعة" else "نتائج البحث",
-                        color = theme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)
+                        color = theme.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
                     )
                 }
                 items(gifs, key = { it.id }) { g ->
@@ -387,17 +403,17 @@ private fun GifTab(onGif: (GifItem) -> Unit, fieldBg: Color) {
 private fun StickersTab(recent: List<String>, onSticker: (String) -> Unit) {
     val theme = LocalSettingsTheme.current.theme
     LazyVerticalGrid(
-        columns = GridCells.Fixed(5),
-        contentPadding = PaddingValues(start = 10.dp, top = 12.dp, end = 10.dp, bottom = 100.dp),
+        columns = GridCells.Fixed(6),
+        contentPadding = PaddingValues(start = 10.dp, top = 12.dp, end = 10.dp, bottom = 56.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        item(span = { GridItemSpan(5) }) {
-            Text("الملصقات الشائعة", color = theme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(6.dp))
+        item(span = { GridItemSpan(6) }) {
+            Text("الملصقات الشائعة", color = theme.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(6.dp))
         }
         items(POPULAR_STICKERS) { em -> StickerCell(em, onSticker) }
         if (recent.isNotEmpty()) {
-            item(span = { GridItemSpan(5) }) {
-                Text("مستخدمة حديثًا", color = theme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 6.dp, top = 18.dp, end = 6.dp, bottom = 6.dp))
+            item(span = { GridItemSpan(6) }) {
+                Text("مستخدمة حديثًا", color = theme.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 6.dp, top = 12.dp, end = 6.dp, bottom = 4.dp))
             }
             items(recent) { em -> StickerCell(em, onSticker) }
         }
@@ -411,7 +427,26 @@ private fun StickerCell(emoji: String, onSticker: (String) -> Unit) {
         Modifier.aspectRatio(1f).clip(RoundedCornerShape(12.dp)).clickable { onSticker(emoji) },
         contentAlignment = Alignment.Center
     ) {
-        if (url != null) com.example.ui.LottieEmojiReaction(url = url, size = 52.dp, loopForever = false)
+        if (url != null) com.example.ui.LottieEmojiReaction(url = url, size = 44.dp, loopForever = false)
         else Text(emoji, fontSize = 34.sp)
+    }
+}
+
+/** سهم رفع/خفض اللوحة (يظهر بجانب علامة + عند فتح لوحة الإيموجي) */
+@Composable
+fun PanelExpandChevron(expanded: Boolean, onClick: () -> Unit) {
+    val theme = LocalSettingsTheme.current.theme
+    val rot by androidx.compose.animation.core.animateFloatAsState(
+        if (expanded) 180f else 0f, spring(dampingRatio = 0.8f, stiffness = 400f), label = "chevron_rot"
+    )
+    Box(
+        Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Outlined.KeyboardArrowUp, contentDescription = null,
+            tint = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(26.dp).graphicsLayer { rotationZ = rot }
+        )
     }
 }

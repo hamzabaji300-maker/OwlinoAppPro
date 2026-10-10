@@ -85,6 +85,14 @@ class LabChatState(val kind: LabKind) {
     var highlightedId by mutableStateOf<String?>(null)
     var deletingIds by mutableStateOf<Set<String>>(emptySet())
     var showPanel by mutableStateOf(false)
+    var panelExpanded by mutableStateOf(false)
+    var panelSearchActive by mutableStateOf(false)
+
+    fun closePanel() {
+        showPanel = false
+        panelExpanded = false
+        panelSearchActive = false
+    }
     val recentEmojis = mutableStateListOf<String>()
     val recentStickers = mutableStateListOf<String>()
 
@@ -104,7 +112,7 @@ class LabChatState(val kind: LabKind) {
     fun sendGif(gif: com.example.util.GifItem, scope: CoroutineScope) {
         val id = UUID.randomUUID().toString()
         val att = Attachment(messageId = id, type = AttachmentType.IMAGE, url = gif.url, aspectRatio = gif.aspectRatio)
-        showPanel = false
+        closePanel()
         messages += labMsg(kind, "", true, attachments = listOf(att), id = id, views = if (kind.isChannel) "1" else null)
         simulateReply(scope, "", attachmentName = "GIF")
     }
@@ -328,12 +336,21 @@ fun LabMessagesScreen(
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val imeVisible = WindowInsets.isImeVisible
-    val panelHeight = (configuration.screenHeightDp * 0.42f).dp
+    val collapsedH = (configuration.screenHeightDp * 0.36f).dp
+    val expandedH = (configuration.screenHeightDp * 0.82f).dp
+    val panelHeight by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (state.panelExpanded || state.panelSearchActive) expandedH else collapsedH,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 330f),
+        label = "panel_height"
+    )
 
     BackHandler(enabled = isSelectionMode) { state.selected = emptySet() }
-    BackHandler(enabled = state.showPanel && !isSelectionMode) { state.showPanel = false }
+    BackHandler(enabled = state.showPanel && !isSelectionMode) {
+        if (state.panelExpanded) state.panelExpanded = false else state.closePanel()
+    }
     // عند ظهور لوحة المفاتيح تُغلق اللوحة (يتبادلان نفس المكان)
-    LaunchedEffect(imeVisible) { if (imeVisible) state.showPanel = false }
+    // (إلا إذا كانت لوحة المفاتيح ظهرت بسبب حقل البحث داخل اللوحة نفسها)
+    LaunchedEffect(imeVisible) { if (imeVisible && !state.panelSearchActive) state.closePanel() }
 
     Box(modifier = Modifier.fillMaxSize()) {
         ChatWallpaper()
@@ -453,7 +470,7 @@ fun LabMessagesScreen(
                             onTextChange = { state.text = it },
                             onSend = { state.sendText(scope) },
                             onOpenGifPicker = {
-                                if (state.showPanel) state.showPanel = false
+                                if (state.showPanel) state.closePanel()
                                 else {
                                     focusManager.clearFocus()
                                     keyboard?.hide()
@@ -465,8 +482,20 @@ fun LabMessagesScreen(
                             onCancelReply = { state.replyingTo = null },
                             editingMessage = state.editingMessage,
                             onCancelEdit = { state.editingMessage = null; state.text = "" },
-                            leading = if (kind.isBot) ({
-                                BotMenuPill(open = state.showBotMenu, onClick = { state.showBotMenu = !state.showBotMenu })
+                            leading = if (kind.isBot || state.showPanel) ({
+                                // سهم رفع/خفض لوحة الإيموجي بجانب علامة +
+                                if (state.showPanel) {
+                                    PanelExpandChevron(expanded = state.panelExpanded) {
+                                        state.panelExpanded = !state.panelExpanded
+                                        if (!state.panelExpanded) {
+                                            focusManager.clearFocus()
+                                            keyboard?.hide()
+                                        }
+                                    }
+                                }
+                                if (kind.isBot) {
+                                    BotMenuPill(open = state.showBotMenu, onClick = { state.showBotMenu = !state.showBotMenu })
+                                }
                             }) else null,
                             trailing = if (kind.isBot && replyKeyboardRows != null) ({
                                 ReplyKeyboardToggle(active = state.showReplyKb, onClick = { state.showReplyKb = !state.showReplyKb })
@@ -481,7 +510,9 @@ fun LabMessagesScreen(
                                 onBackspace = { state.backspace() },
                                 onGif = { state.sendGif(it, scope) },
                                 onSticker = { state.sendSticker(it, scope) },
-                                onClearStickers = { state.recentStickers.clear() }
+                                onClearStickers = { state.recentStickers.clear() },
+                                showTabBar = !state.panelSearchActive,
+                                onSearchFocus = { state.panelSearchActive = it }
                             )
                         }
                         if (kind.isBot && replyKeyboardRows != null && state.showReplyKb) {
