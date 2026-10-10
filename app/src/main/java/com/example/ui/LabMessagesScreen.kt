@@ -394,7 +394,10 @@ fun LabMessagesScreen(
         Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)).imePadding()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    CompositionLocalProvider(LocalPollVote provides pollVote) {
+                    CompositionLocalProvider(
+                        LocalPollVote provides pollVote,
+                        LocalPollChannelAuthor provides (if (kind.isChannel) kind.title else null)
+                    ) {
                     ChatMessages(
                         messages = uiMessages,
                         isChannel = kind.isChannel,

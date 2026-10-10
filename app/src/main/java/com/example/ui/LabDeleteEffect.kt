@@ -15,6 +15,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import android.graphics.Bitmap
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.unit.IntSize
@@ -39,15 +41,26 @@ private class DustParticles(
     val width: Float
 )
 
-/** يلتقط صورة الفقاعة ويحوّلها إلى آلاف الحبيبات الصغيرة (كل حبيبة بلون بكسل حقيقي). */
-private fun buildDust(bmp: ImageBitmap): DustParticles? {
+/**
+ * يحوّل صورة الفقاعة إلى آلاف الحبيبات الصغيرة (كل حبيبة بلون بكسل حقيقي).
+ * ملاحظة مهمة: toImageBitmap() يعيد Bitmap من نوع HARDWARE على الأجهزة الحقيقية ولا يمكن قراءة بكسلاته مباشرة
+ * (كان هذا سبب فشل الغبار والرجوع للتلاشي)، لذلك ننسخه أولًا إلى ARGB_8888.
+ */
+private fun buildDust(image: ImageBitmap): DustParticles? {
+    var bmp = image.asAndroidBitmap()
+    if (bmp.config == Bitmap.Config.HARDWARE) {
+        bmp = bmp.copy(Bitmap.Config.ARGB_8888, false) ?: return null
+    }
     val w = bmp.width
     val h = bmp.height
     if (w <= 0 || h <= 0) return null
     val pixels = IntArray(w * h)
-    bmp.readPixels(pixels, 0, 0, w, h, 0, w)
-    // عدد الحبيبات ≈ 3500 كحد أقصى
-    val step = max(3, ceil(sqrt(w.toDouble() * h / 3500.0)).toInt())
+    bmp.getPixels(pixels, 0, w, 0, 0, w, h)
+    var opaque = 0
+    for (c in pixels) if ((c ushr 24) > 30) opaque++
+    if (opaque == 0) return null
+    // حبيبات دقيقة: العدد ≈ 4500 داخل مساحة الفقاعة الفعلية فقط
+    val step = max(2, ceil(sqrt(opaque / 4500.0)).toInt())
     val rnd = Random(7)
     val xs = ArrayList<Float>(); val ys = ArrayList<Float>()
     val cols = ArrayList<Int>(); val sa = ArrayList<Float>(); val sb = ArrayList<Float>()

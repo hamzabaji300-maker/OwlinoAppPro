@@ -1,6 +1,21 @@
 package com.example.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.ui.text.style.TextAlign
+import kotlin.math.roundToInt
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -42,10 +57,14 @@ val LocalPollVote = staticCompositionLocalOf<(String, Set<Int>) -> Unit> { { _, 
 private fun pollEnded(p: Poll, now: Long) = p.endsAt != null && now >= p.endsAt
 
 // ======================= فقاعة الاستفتاء =======================
+/** اسم صاحب المنشور عندما يُعرض الاستفتاء داخل قناة (null = مجموعة/دردشة). */
+val LocalPollChannelAuthor = staticCompositionLocalOf<String?> { null }
+
 @Composable
 fun PollBubbleContent(msg: MessageModel, isMe: Boolean, textColor: Color, accent: Color) {
     val poll = msg.poll ?: return
     val onVote = LocalPollVote.current
+    val channelAuthor = LocalPollChannelAuthor.current
     val screenW = LocalConfiguration.current.screenWidthDp.dp
 
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -63,17 +82,21 @@ fun PollBubbleContent(msg: MessageModel, isMe: Boolean, textColor: Color, accent
 
     val fill = if (isMe) Color.White else accent
     val track = textColor.copy(alpha = 0.14f)
+    val divider = textColor.copy(alpha = 0.12f)
     val good = Color(0xFF22C55E)
     val bad = Color(0xFFEF4444)
 
     Column(
-        modifier = Modifier.width(screenW * 0.72f).padding(horizontal = 10.dp, vertical = 8.dp)
+        modifier = Modifier.width(screenW * 0.78f).padding(horizontal = 12.dp, vertical = 8.dp).animateContentSize(tween(300, easing = FastOutSlowInEasing))
     ) {
-        Text(poll.question, color = textColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        if (channelAuthor != null) {
+            Text(channelAuthor, color = fill, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
+        }
+        Text(poll.question, color = textColor, fontSize = 17.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(2.dp))
         val sub = buildString {
-            append(if (poll.quizCorrect != null) "اختبار" else "استفتاء")
-            if (poll.multiple) append(" · إجابات متعددة")
+            append(if (poll.quizCorrect != null) "اختبار سري" else "استفتاء سري")
+            if (poll.multiple) append(" · اختر واحدًا أو أكثر")
             if (closed) append(" · مغلق")
             else if (poll.endsAt != null) {
                 val sec = ((poll.endsAt - now) / 1000).coerceAtLeast(0)
@@ -81,94 +104,142 @@ fun PollBubbleContent(msg: MessageModel, isMe: Boolean, textColor: Color, accent
                 append(if (sec >= 3600) "${sec / 3600} س" else if (sec >= 60) "${sec / 60} د" else "$sec ث")
             }
         }
-        Text(sub, color = textColor.copy(alpha = 0.6f), fontSize = 12.sp)
-        Spacer(Modifier.height(8.dp))
+        Text(sub, color = textColor.copy(alpha = 0.6f), fontSize = 13.sp)
+        Spacer(Modifier.height(6.dp))
 
-        poll.options.forEachIndexed { i, opt ->
-            val mine = i in poll.myVotes
-            val isCorrect = poll.quizCorrect == i
-            if (!showResults) {
-                val picked = i in pending
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable {
-                            if (poll.multiple) pending = if (picked) pending - i else pending + i
-                            else onVote(msg.id, setOf(i))
+        // انتقال انسحابي ناعم بين وضع التصويت ووضع النتائج
+        AnimatedContent(
+            targetState = showResults,
+            transitionSpec = {
+                (fadeIn(tween(320, delayMillis = 60)) + slideInVertically(tween(380, easing = FastOutSlowInEasing)) { it / 4 }) togetherWith
+                    (fadeOut(tween(200)) + slideOutVertically(tween(260, easing = FastOutSlowInEasing)) { -it / 5 })
+            },
+            label = "poll_mode"
+        ) { results ->
+            Column(Modifier.fillMaxWidth()) {
+                poll.options.forEachIndexed { i, opt ->
+                    val mine = i in poll.myVotes
+                    if (!results) {
+                        val picked = i in pending
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (poll.multiple) pending = if (picked) pending - i else pending + i
+                                    else onVote(msg.id, setOf(i))
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(opt.text, color = textColor, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                            Spacer(Modifier.width(10.dp))
+                            PollCheck(selected = picked, color = fill, ring = textColor.copy(alpha = 0.5f), checkTint = if (isMe) accent else Color.White)
                         }
-                        .padding(vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        if (poll.multiple) (if (picked) Icons.Outlined.CheckBox else Icons.Outlined.CheckBoxOutlineBlank)
-                        else (if (picked) Icons.Outlined.RadioButtonChecked else Icons.Outlined.RadioButtonUnchecked),
-                        contentDescription = null,
-                        tint = if (picked) fill else textColor.copy(alpha = 0.55f),
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(opt.text, color = textColor, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                }
-            } else {
-                val frac = if (total == 0) 0f else opt.votes.toFloat() / total
-                val anim by animateFloatAsState(frac, tween(500, easing = FastOutSlowInEasing), label = "poll_bar")
-                val barColor = when {
-                    poll.quizCorrect != null && isCorrect -> good
-                    poll.quizCorrect != null && mine -> bad
-                    else -> fill
-                }
-                Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${(frac * 100).toInt()}%", color = textColor, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(40.dp))
-                        Text(opt.text, color = textColor, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                        if (mine || (poll.quizCorrect != null && isCorrect)) {
-                            Icon(
-                                if (poll.quizCorrect != null && !isCorrect) Icons.Outlined.Cancel else Icons.Outlined.CheckCircle,
-                                contentDescription = null, tint = barColor, modifier = Modifier.size(18.dp)
-                            )
+                        if (i < poll.options.lastIndex) Box(Modifier.fillMaxWidth().height(1.dp).background(divider))
+                    } else {
+                        val quizState = when {
+                            poll.quizCorrect == null -> 0
+                            poll.quizCorrect == i -> 1
+                            mine -> 2
+                            else -> 0
                         }
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(track)) {
-                        Box(Modifier.fillMaxWidth(anim.coerceIn(0.02f, 1f)).fillMaxHeight().clip(CircleShape).background(barColor))
+                        ResultRow(opt.text, opt.votes, total, i, mine, quizState, textColor, fill, track, good, bad)
                     }
                 }
             }
         }
 
-        Spacer(Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (total == 0) "لا توجد أصوات بعد" else "$total صوت",
-                color = textColor.copy(alpha = 0.6f), fontSize = 12.sp, modifier = Modifier.weight(1f)
-            )
-            Text(msg.time, color = textColor.copy(alpha = 0.6f), fontSize = 11.sp)
-        }
         if (!showResults && poll.multiple) {
-            Spacer(Modifier.height(6.dp))
             Box(
                 Modifier
-                    .fillMaxWidth()
+                    .align(Alignment.CenterHorizontally)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (pending.isNotEmpty()) fill else track)
                     .clickable(enabled = pending.isNotEmpty()) { onVote(msg.id, pending) }
-                    .padding(vertical = 9.dp),
-                contentAlignment = Alignment.Center
+                    .padding(horizontal = 24.dp, vertical = 10.dp)
             ) {
                 Text(
                     "تصويت",
-                    color = if (pending.isNotEmpty()) (if (isMe) accent else Color.White) else textColor.copy(alpha = 0.5f),
-                    fontWeight = FontWeight.SemiBold, fontSize = 14.sp
+                    color = if (pending.isNotEmpty()) fill else textColor.copy(alpha = 0.4f),
+                    fontWeight = FontWeight.SemiBold, fontSize = 16.sp
                 )
             }
         }
         if (voted && poll.revoting && !closed) {
-            Spacer(Modifier.height(6.dp))
             Text(
-                "سحب التصويت", color = fill, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.align(Alignment.CenterHorizontally).clip(RoundedCornerShape(8.dp)).clickable { onVote(msg.id, emptySet()) }.padding(horizontal = 10.dp, vertical = 4.dp)
+                "سحب التصويت", color = fill, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.align(Alignment.CenterHorizontally).clip(RoundedCornerShape(8.dp)).clickable { onVote(msg.id, emptySet()) }.padding(horizontal = 12.dp, vertical = 6.dp)
             )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+            Text(
+                if (total == 0) "لا توجد أصوات بعد" else "$total صوت",
+                color = textColor.copy(alpha = 0.6f), fontSize = 12.sp, modifier = Modifier.weight(1f)
+            )
+            Text(msg.time, color = textColor.copy(alpha = 0.6f), fontSize = 12.sp)
+        }
+        // منشور القناة: صف التعليقات كما في تيليجرام
+        if (channelAuthor != null) {
+            Spacer(Modifier.height(6.dp))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(divider))
+            Row(
+                Modifier.fillMaxWidth().clickable { }.padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, tint = fill, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(12.dp))
+                Text("كتابة تعليق", color = fill, fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = fill, modifier = Modifier.size(24.dp))
+            }
+        }
+    }
+}
+
+/** دائرة التحديد: حلقة فارغة، وعند الاختيار تمتلئ وتظهر علامة صح بحركة ناعمة. */
+@Composable
+private fun PollCheck(selected: Boolean, color: Color, ring: Color, checkTint: Color) {
+    val bg by animateColorAsState(if (selected) color else Color.Transparent, tween(200), label = "poll_check_bg")
+    val ringColor by animateColorAsState(if (selected) color else ring, tween(200), label = "poll_check_border")
+    Box(
+        Modifier.size(26.dp).clip(CircleShape).background(bg).border(1.6.dp, ringColor, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        AnimatedVisibility(visible = selected, enter = scaleIn(tween(180)) + fadeIn(tween(180)), exit = scaleOut(tween(120)) + fadeOut(tween(120))) {
+            Icon(Icons.Outlined.Check, contentDescription = null, tint = checkTint, modifier = Modifier.size(17.dp))
+        }
+    }
+}
+
+/** صف نتيجة: الشريط ينمو من الصفر والنسبة تعدّ تصاعديًا بتتابع انسحابي بين الخيارات. */
+@Composable
+private fun ResultRow(
+    text: String, votes: Int, total: Int, index: Int, mine: Boolean, quizState: Int,
+    textColor: Color, fill: Color, track: Color, good: Color, bad: Color
+) {
+    val frac = if (total == 0) 0f else votes.toFloat() / total
+    val anim = remember { Animatable(0f) }
+    LaunchedEffect(frac) {
+        if (anim.value == 0f) delay(index * 90L)
+        anim.animateTo(frac, tween(750, easing = FastOutSlowInEasing))
+    }
+    val barColor = when (quizState) { 1 -> good; 2 -> bad; else -> fill }
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(text, color = textColor, fontSize = 17.sp, modifier = Modifier.weight(1f))
+            if (mine || quizState == 1) {
+                Icon(
+                    if (quizState == 2) Icons.Outlined.Cancel else Icons.Outlined.CheckCircle,
+                    contentDescription = null, tint = barColor, modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                "${(anim.value * 100).roundToInt()}%", color = textColor, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.End, modifier = Modifier.width(46.dp)
+            )
+        }
+        Spacer(Modifier.height(5.dp))
+        Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(track)) {
+            Box(Modifier.fillMaxWidth(anim.value.coerceIn(0.015f, 1f)).fillMaxHeight().clip(CircleShape).background(barColor))
         }
     }
 }
