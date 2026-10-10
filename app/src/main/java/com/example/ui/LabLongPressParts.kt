@@ -138,6 +138,7 @@ fun SelectionTopBar(
 }
 
 
+@Composable
 fun PinnedMessageBar(
     message: MessageModel,
     onUnpin: () -> Unit = {},
