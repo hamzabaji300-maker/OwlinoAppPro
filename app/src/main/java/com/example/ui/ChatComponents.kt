@@ -173,7 +173,7 @@ fun MessageBubble(
         Box {
             Column(
                 modifier = Modifier
-                    .widthIn(min = 60.dp, max = screenWidth * 0.85f - (if (__senderSlot) 38.dp else 0.dp))
+                    .widthIn(min = 60.dp, max = (if (LocalChannelFullWidth.current) screenWidth - 16.dp else screenWidth * 0.85f) - (if (__senderSlot) 38.dp else 0.dp))
                     .let { m ->
                         if (isEmojiOnlyMessage || !isLastInCluster) m else m.drawBehind {
                             val d = 1.dp.toPx()
@@ -655,6 +655,8 @@ fun ChannelPostCard(
     )
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        // في القناة تمتد الفقاعة الكبيرة بهامش متساوٍ على الجانبين (بدل 85% من العرض)
+        androidx.compose.runtime.CompositionLocalProvider(LocalChannelFullWidth provides true) {
         MessageBubble(
             msg = bubbleMsg,
             showSender = false,
@@ -666,6 +668,7 @@ fun ChannelPostCard(
             onLightLongPress = onLightLongPress,
             onHeavyLongPress = onHeavyLongPress
         )
+        }
 
         // صف التفاعلات: شريحة forward + شريحة تفاعلات (أعلى 4 + مجموع كلي) + شريحة تفاعلي الشخصي
         if (!msg.forwardsLabel.isNullOrBlank() || msg.channelReactions.isNotEmpty() || msg.reactions.isNotEmpty()) {

@@ -102,3 +102,6 @@ fun Modifier.overlapUp(amount: Dp): Modifier = this.layout { measurable, constra
     val a = amount.roundToPx()
     layout(placeable.width, (placeable.height - a).coerceAtLeast(0)) { placeable.place(0, -a) }
 }
+
+/** true داخل منشورات القناة: الفقاعة تمتد حتى هامش متساوٍ (8dp) على الجانبين. */
+val LocalChannelFullWidth = androidx.compose.runtime.compositionLocalOf { false }
