@@ -343,7 +343,9 @@ fun MessageBubble(
                         val count = imageAttachments.size
                         val spacing = 2.dp
                         // مقاسات مصغّرة زي تيليجرام: عرض أقصى 66% من الشاشة وارتفاع أقصى 40% منها
-                        val collageW = screenWidth * 0.66f
+                        // في القناة تمتد الصورة بعرض الفقاعة كاملًا (هامش متساوٍ)، وفي غيرها 66% من الشاشة
+                        val channelFull = LocalChannelFullWidth.current
+                        val collageW = if (channelFull) screenWidth - 20.dp else screenWidth * 0.66f
                         
                         if (count == 1) {
                             val att = imageAttachments.first()
@@ -356,6 +358,10 @@ fun MessageBubble(
                                 singleW = singleH * singleRatio
                             }
                             singleW = singleW.coerceAtLeast(120.dp)
+                            if (channelFull) {
+                                singleW = collageW
+                                singleH = (collageW / singleRatio).coerceAtMost(screenHeight * 0.5f)
+                            }
                             DownloadableImage(
                                 att = att,
                                 isMe = isMe,
@@ -425,7 +431,7 @@ fun MessageBubble(
                         ) {
                             Column(
                                 modifier = Modifier
-                                    .widthIn(max = screenWidth * 0.66f)
+                                    .then(if (LocalChannelFullWidth.current) Modifier.fillMaxWidth() else Modifier.widthIn(max = screenWidth * 0.66f))
                                     .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 5.dp)
                             ) {
                                 Text(
