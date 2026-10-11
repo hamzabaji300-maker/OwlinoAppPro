@@ -38,10 +38,20 @@ object LocalFileManager {
 
                 val tempFile = File(mediaDir, "$fileName.tmp")
 
-                URL(urlString).openStream().use { input ->
-                    tempFile.outputStream().use { output ->
-                        input.copyTo(output)
+                val conn = (URL(urlString).openConnection() as java.net.HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                }
+                MediaAuth.apply(conn, urlString)
+                try {
+                    if (conn.responseCode !in 200..299) return@withContext null
+                    conn.inputStream.use { input ->
+                        tempFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
                     }
+                } finally {
+                    conn.disconnect()
                 }
                 
                 // Rename atomic

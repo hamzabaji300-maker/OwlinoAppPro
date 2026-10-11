@@ -143,7 +143,7 @@ fun MessageContextMenuOverlay(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (reactionUrl != null) {
-                                        LottieEmojiReaction(url = reactionUrl, size = 38.dp, animate = false)
+                                        LottieEmojiReaction(url = reactionUrl, size = 38.dp)
                                     }
                                 }
                             }
@@ -186,7 +186,7 @@ fun MessageContextMenuOverlay(
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (reactionUrl != null) {
-                                    LottieEmojiReaction(url = reactionUrl, size = 32.dp, animate = false)
+                                    LottieEmojiReaction(url = reactionUrl, size = 32.dp)
                                 }
                             }
                         }
@@ -378,7 +378,7 @@ fun FullEmojiPickerDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         if (url != null) {
-                            LottieEmojiReaction(url = url, size = 32.dp, animate = false)
+                            LottieEmojiReaction(url = url, size = 32.dp)
                         }
                     }
                 }
