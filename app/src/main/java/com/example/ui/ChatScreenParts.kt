@@ -646,7 +646,11 @@ fun ChatMessages(
      ){
        itemsIndexed(messages, key = { _, it -> it.msg.id }, contentType = { _, _ -> "message" }) { index, uiMsg ->
           val message = uiMsg.msg
-          SwipeToReplyWrapper(modifier = Modifier.animateItem().then(if (message.id in deletingIds) Modifier.dissolveOnDelete(true) else Modifier), onReply = { if (!isSelectionMode) onReply(message) }) {
+          SwipeToReplyWrapper(modifier = Modifier.animateItem().then(if (message.id in deletingIds) Modifier.dissolveOnDelete(
+                true, message.id,
+                if (message.isMine) LocalSettingsTheme.current.accent else LocalSettingsTheme.current.theme.surfaceColor,
+                if (message.isMine) Color.White else LocalSettingsTheme.current.theme.textPrimary
+            ) else Modifier), onReply = { if (!isSelectionMode) onReply(message) }) {
              val bounds = remember { arrayOf(androidx.compose.ui.geometry.Rect.Zero) }
              val isSelected = message.id in selectedMessages
              val isHighlighted = message.id == highlightedMessageId || message.id == activeContextMenuMessageId

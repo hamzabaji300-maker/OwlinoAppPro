@@ -17,6 +17,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.text.appendInlineContent
@@ -148,7 +150,10 @@ fun MessageBubble(
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 msg.reactions.forEach { emoji ->
-                    StaticEmoji(NotoEmojiMap.reactionToEmoji(emoji), 34.dp)
+                    val reactionUrl = NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji))
+                    if (reactionUrl != null) {
+                        LottieEmojiReaction(url = reactionUrl, size = 34.dp)
+                    }
                 }
             }
             Spacer(Modifier.width(3.dp))
@@ -201,6 +206,7 @@ fun MessageBubble(
                         drawPath(tail, bubbleColor)
                     }
                 }
+                .onGloballyPositioned { DustRegistry.bubbleBounds[msg.id] = it.boundsInRoot() }
                 .let { if (isEmojiOnlyMessage) it else it.clip(shape).background(bubbleColor) }
                 .pointerInput(Unit) {
                     detectTapGestures(
@@ -589,7 +595,10 @@ fun MessageBubble(
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 msg.reactions.forEach { emoji ->
-                    StaticEmoji(NotoEmojiMap.reactionToEmoji(emoji), 34.dp)
+                    val reactionUrl = NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji))
+                    if (reactionUrl != null) {
+                        LottieEmojiReaction(url = reactionUrl, size = 34.dp)
+                    }
                 }
             }
         }
@@ -669,7 +678,12 @@ fun ChannelPostCard(
                     ) {
                         val topFour = msg.channelReactions.sortedByDescending { it.count }.take(4)
                         topFour.forEach { reaction ->
-                            Text(reaction.emoji, fontSize = 13.sp)
+                            val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
+                            if (url != null) {
+                                LottieEmojiReaction(url = url, size = 17.dp)
+                            } else {
+                                Text(reaction.emoji, fontSize = 13.sp)
+                            }
                         }
                         val totalLabel = msg.totalInteractionsLabel
                             ?: formatReactionCount(msg.channelReactions.sumOf { it.count })
@@ -687,7 +701,10 @@ fun ChannelPostCard(
                             .padding(horizontal = 8.dp, vertical = 5.dp)
                     ) {
                         msg.reactions.forEach { emoji ->
-                            StaticEmoji(NotoEmojiMap.reactionToEmoji(emoji), 18.dp)
+                            val myUrl = remember(emoji) { NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji)) }
+                            if (myUrl != null) {
+                                LottieEmojiReaction(url = myUrl, size = 16.dp)
+                            }
                         }
                     }
                 }
@@ -742,7 +759,12 @@ fun ReactionBreakdownDialog(
                                 Text(formatReactionCount(reaction.count), color = __theme.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.width(6.dp))
                             }
-                            Text(reaction.emoji, fontSize = 16.sp)
+                            val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
+                            if (url != null) {
+                                LottieEmojiReaction(url = url, size = 20.dp)
+                            } else {
+                                Text(reaction.emoji, fontSize = 16.sp)
+                            }
                         }
                     }
                     repeat(3 - rowItems.size) {

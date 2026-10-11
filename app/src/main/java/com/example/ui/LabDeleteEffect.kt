@@ -12,153 +12,133 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asAndroidBitmap
-import android.graphics.Bitmap
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.runtime.withFrameNanos
-import java.util.Random
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** يُبلغ الشاشة بسبب فشل التفتيت (يظهر كإشعار) كي نعرف السبب الحقيقي على جهازك. */
+/** مدة حركة الحذف بالملّي ثانية (يستخدمها LabChatState قبل إزالة الرسالة فعليًا). */
+const val DELETE_EFFECT_MS = 1400
+
+/** (للتشخيص فقط) لم يعد التفتيت يعتمد على التقاط صورة، لكن أبقيت الواجهة لتوافق بقية الملفات. */
 object DustDebug {
     @Volatile var onError: ((String) -> Unit)? = null
 }
 
-/** مدة حركة الحذف بالملّي ثانية (يستخدمها LabChatState قبل إزالة الرسالة فعليًا). */
-const val DELETE_EFFECT_MS = 1300
+/** حدود فقاعة كل رسالة (بإحداثيات الجذر)، تسجّلها MessageBubble ويقرؤها تأثير الغبار. */
+object DustRegistry {
+    val bubbleBounds = HashMap<String, Rect>()
+}
 
-private class DustParticles(
-    val n: Int,
-    val xs: FloatArray,
-    val ys: FloatArray,
-    val argb: IntArray,
-    val seedA: FloatArray,
-    val seedB: FloatArray,
-    val step: Float,
-    val width: Float
-)
-
-/**
- * يحوّل صورة الفقاعة إلى آلاف الحبيبات الصغيرة (كل حبيبة بلون بكسل حقيقي).
- * ملاحظة مهمة: toImageBitmap() يعيد Bitmap من نوع HARDWARE على الأجهزة الحقيقية ولا يمكن قراءة بكسلاته مباشرة
- * (كان هذا سبب فشل الغبار والرجوع للتلاشي)، لذلك ننسخه أولًا إلى ARGB_8888.
- */
-private fun buildDust(image: ImageBitmap): DustParticles? {
-    var bmp = image.asAndroidBitmap()
-    if (bmp.config == Bitmap.Config.HARDWARE) {
-        bmp = bmp.copy(Bitmap.Config.ARGB_8888, false) ?: return null
-    }
-    val w = bmp.width
-    val h = bmp.height
-    if (w <= 0 || h <= 0) return null
-    val pixels = IntArray(w * h)
-    bmp.getPixels(pixels, 0, w, 0, 0, w, h)
-    var opaque = 0
-    for (c in pixels) if ((c ushr 24) > 30) opaque++
-    if (opaque == 0) return null
-    // حبيبات دقيقة: العدد ≈ 4500 داخل مساحة الفقاعة الفعلية فقط
-    val step = max(2, ceil(sqrt(opaque / 4500.0)).toInt())
-    val rnd = Random(7)
-    val xs = ArrayList<Float>(); val ys = ArrayList<Float>()
-    val cols = ArrayList<Int>(); val sa = ArrayList<Float>(); val sb = ArrayList<Float>()
-    var y = 0
-    while (y < h) {
-        var x = 0
-        while (x < w) {
-            val c = pixels[(y + step / 2).coerceAtMost(h - 1) * w + (x + step / 2).coerceAtMost(w - 1)]
-            if ((c ushr 24) > 30) {
-                xs.add(x.toFloat()); ys.add(y.toFloat()); cols.add(c)
-                sa.add(rnd.nextFloat()); sb.add(rnd.nextFloat())
-            }
-            x += step
-        }
-        y += step
-    }
-    if (xs.isEmpty()) return null
-    return DustParticles(
-        xs.size, xs.toFloatArray(), ys.toFloatArray(), cols.toIntArray(),
-        sa.toFloatArray(), sb.toFloatArray(), step.toFloat(), w.toFloat()
-    )
+private fun cellRand(a: Int, b: Int, salt: Int): Float {
+    var x = a * 374761393 + b * 668265263 + salt * 1442695041
+    x = (x xor (x ushr 13)) * 1274126177
+    x = x xor (x ushr 16)
+    return (x and 0xFFFFFF) / 16777215f
 }
 
 /**
- * حركة حذف الرسالة: تبقى الفقاعة كاملة ثم تتحوّل إلى غبار ناعم يتطاير للأعلى ويتلاشى
- * (موجة من اليسار لليمين)، بعدها تنزلق باقي الرسائل لملء المكان.
- * إذا فشل التقاط الصورة لأي سبب تتلاشى الفقاعة تدريجيًا بدل ذلك.
+ * تحويل الفقاعة إلى رمل — بدون أي التقاط صور (التقاط الطبقة كان يعيد صورة فارغة على بعض الأجهزة):
+ *  1) نرسم محتوى الفقاعة الحقيقي مرة واحدة داخل طبقة.
+ *  2) نمحو منها خلايا صغيرة جدًا (BlendMode.Clear) بموجة من اليسار لليمين.
+ *  3) في مكان كل خلية ممحوة نرسم حبيبة رمل بلون الفقاعة/النص تتطاير للأعلى وتتلاشى.
+ *  4) في آخر الحركة يتلاشى أي متبقٍ (مثل صف التفاعلات) ثم تُزال الرسالة وتنزلق الباقية.
  */
-fun Modifier.dissolveOnDelete(active: Boolean): Modifier = composed {
-    val layer = rememberGraphicsLayer()
+fun Modifier.dissolveOnDelete(active: Boolean, messageId: String, bubbleColor: Color, textColor: Color): Modifier = composed {
     val progress = remember { Animatable(0f) }
-    var dust by remember { mutableStateOf<DustParticles?>(null) }
-    var failed by remember { mutableStateOf(false) }
+    var rowOrigin by remember { mutableStateOf(Offset.Zero) }
 
     LaunchedEffect(active) {
         if (active) {
-            // نترك إطارين ليُسجَّل المحتوى داخل الطبقة قبل التقاطه
-            withFrameNanos { }
-            withFrameNanos { }
-            try {
-                val img = layer.toImageBitmap()
-                dust = buildDust(img)
-                failed = dust == null
-                if (dust == null) DustDebug.onError?.invoke("التفتيت: الصورة الملتقطة فارغة (${img.width}x${img.height})")
-            } catch (e: Throwable) {
-                failed = true
-                DustDebug.onError?.invoke("التفتيت فشل: ${e.javaClass.simpleName}: ${e.message}")
-            }
             progress.snapTo(0f)
             progress.animateTo(1f, tween(DELETE_EFFECT_MS, easing = LinearEasing))
         } else {
             progress.snapTo(0f)
-            dust = null
-            failed = false
         }
     }
 
-    this.drawWithContent {
-        if (!active) {
-            drawContent()
-            return@drawWithContent
-        }
-        val ps = dust
-        if (ps == null) {
-            // لحظة الالتقاط (أو الفشل): نرسم المحتوى عبر الطبقة
-            layer.record(this, layoutDirection, IntSize(size.width.toInt(), size.height.toInt())) { this@drawWithContent.drawContent() }
-            layer.alpha = if (failed) 1f - progress.value else 1f
-            drawLayer(layer)
-            return@drawWithContent
-        }
-        val p = progress.value
-        val d = density
-        val w = ps.width
-        for (i in 0 until ps.n) {
-            val sa = ps.seedA[i]
-            val sb = ps.seedB[i]
-            val delay = (ps.xs[i] / w) * 0.35f + sa * 0.15f
-            val lp = ((p - delay) / 0.5f).coerceIn(0f, 1f)
-            if (lp >= 1f) continue
-            val base = Color(ps.argb[i])
-            if (lp <= 0f) {
-                drawRect(base, Offset(ps.xs[i], ps.ys[i]), Size(ps.step, ps.step))
-            } else {
-                val a = (1f - lp) * (1f - lp)
-                val dx = lp * (25f + sa * 90f) * d + sin(lp * 9f + sb * 12f) * 6f * d * lp
-                val dy = -lp * (15f + sb * 80f) * d + sin(lp * 7f + sa * 10f) * 4f * d * lp
-                val r = ps.step * (0.55f - 0.35f * lp) * (0.6f + sb * 0.8f)
-                drawCircle(
-                    color = base.copy(alpha = base.alpha * a),
-                    radius = r,
-                    center = Offset(ps.xs[i] + ps.step / 2f + dx, ps.ys[i] + ps.step / 2f + dy)
-                )
+    this
+        .onGloballyPositioned { rowOrigin = it.positionInRoot() }
+        .drawWithContent {
+            if (!active) {
+                drawContent()
+                return@drawWithContent
+            }
+            val p = progress.value
+            val d = density
+
+            // منطقة الفقاعة داخل الصف (إن لم تُعرف نستخدم الصف كله)
+            var left = 0f
+            var top = 0f
+            var right = size.width
+            var bottom = size.height
+            val rb = DustRegistry.bubbleBounds[messageId]
+            if (rb != null) {
+                left = (rb.left - rowOrigin.x).coerceIn(0f, size.width)
+                top = (rb.top - rowOrigin.y).coerceIn(0f, size.height)
+                right = (rb.right - rowOrigin.x).coerceIn(0f, size.width)
+                bottom = (rb.bottom - rowOrigin.y).coerceIn(0f, size.height)
+            }
+            val rw = right - left
+            val rh = bottom - top
+            if (rw < 2f || rh < 2f) {
+                drawContent()
+                return@drawWithContent
+            }
+            val step = max(3f * d, sqrt(rw * rh / 3200f))
+            val cols = ceil(rw / step).toInt().coerceAtLeast(1)
+            val rows = ceil(rh / step).toInt().coerceAtLeast(1)
+            val fade = if (p < 0.55f) 1f else (1f - (p - 0.55f) / 0.45f).coerceIn(0f, 1f)
+
+            // 1+2) المحتوى الحقيقي مع محو الخلايا التي بدأت تتحول إلى رمل
+            drawIntoCanvas { canvas ->
+                val paint = Paint().apply { alpha = fade }
+                canvas.saveLayer(Rect(-size.width, -size.height, size.width * 2f, size.height * 2f), paint)
+                this@drawWithContent.drawContent()
+                for (r in 0 until rows) {
+                    for (c in 0 until cols) {
+                        val delay = (c.toFloat() / cols) * 0.35f + cellRand(r, c, 1) * 0.15f
+                        val lp = ((p - delay) / 0.5f).coerceIn(0f, 1f)
+                        if (lp > 0f) {
+                            drawRect(
+                                color = Color.Black,
+                                topLeft = Offset(left + c * step, top + r * step),
+                                size = Size(step + 1f, step + 1f),
+                                blendMode = BlendMode.Clear
+                            )
+                        }
+                    }
+                }
+                canvas.restore()
+            }
+
+            // 3) حبيبات الرمل
+            for (r in 0 until rows) {
+                for (c in 0 until cols) {
+                    val delay = (c.toFloat() / cols) * 0.35f + cellRand(r, c, 1) * 0.15f
+                    val lp = ((p - delay) / 0.5f).coerceIn(0f, 1f)
+                    if (lp <= 0f || lp >= 1f) continue
+                    val sa = cellRand(r, c, 2)
+                    val sb = cellRand(r, c, 3)
+                    val a = (1f - lp) * (1f - lp)
+                    val dx = lp * (25f + sa * 90f) * d + sin(lp * 9f + sb * 12f) * 6f * d * lp
+                    val dy = -lp * (15f + sb * 80f) * d + sin(lp * 7f + sa * 10f) * 4f * d * lp
+                    val base = if (cellRand(r, c, 4) < 0.28f) textColor else bubbleColor
+                    val radius = step * (0.55f - 0.35f * lp) * (0.6f + sb * 0.8f)
+                    drawCircle(
+                        color = base.copy(alpha = base.alpha * a),
+                        radius = radius,
+                        center = Offset(left + c * step + step / 2f + dx, top + r * step + step / 2f + dy)
+                    )
+                }
             }
         }
-    }
 }
