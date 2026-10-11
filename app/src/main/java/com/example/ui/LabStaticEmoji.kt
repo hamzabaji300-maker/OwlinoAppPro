@@ -3,6 +3,7 @@ package com.example.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.remember
@@ -93,4 +94,11 @@ fun ReactionChip(reactions: List<String>, modifier: Modifier = Modifier) {
             Text("${reactions.size}", fontSize = 12.sp, color = theme.textSecondary, fontWeight = FontWeight.Medium)
         }
     }
+}
+
+/** يرفع العنصر للأعلى بمقدار [amount] ويقلّل ارتفاعه المحجوز بنفس المقدار، فيتداخل مع العنصر الذي فوقه. */
+fun Modifier.overlapUp(amount: Dp): Modifier = this.layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints)
+    val a = amount.roundToPx()
+    layout(placeable.width, (placeable.height - a).coerceAtLeast(0)) { placeable.place(0, -a) }
 }

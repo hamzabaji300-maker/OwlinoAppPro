@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
@@ -337,6 +338,7 @@ fun MessageBubble(
                         }
                     }
                 } else if (imageAttachments.isNotEmpty()) {
+                    Column {
                     Box(modifier = Modifier.padding(2.dp).clip(RoundedCornerShape(14.dp))) {
                         val count = imageAttachments.size
                         val spacing = 2.dp
@@ -414,6 +416,43 @@ fun MessageBubble(
                                 )
                             }
                         }
+                    }
+                    // التعليق المرافق للصور (نص يُرسل مع الصورة في رسالة واحدة) + الوقت تحته
+                    if (cleanText.isNotBlank()) {
+                        val richCap = remember(cleanText) { buildRichMessageContent(cleanText, 19.sp, 20.dp) }
+                        androidx.compose.runtime.CompositionLocalProvider(
+                            androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .widthIn(max = screenWidth * 0.66f)
+                                    .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 5.dp)
+                            ) {
+                                Text(
+                                    text = richCap.text,
+                                    inlineContent = richCap.inlineContent,
+                                    color = textColor,
+                                    fontSize = 16.5.sp,
+                                    lineHeight = 24.sp,
+                                    style = androidx.compose.ui.text.TextStyle(textDirection = androidx.compose.ui.text.style.TextDirection.Content)
+                                )
+                                Row(
+                                    modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    MsgTimeText(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                                    MessageIndicators(
+                                        isMe = isMe,
+                                        status = msg.status,
+                                        isRead = false,
+                                        isSaved = msg.isSaved,
+                                        isPinned = msg.isPinned,
+                                        isImageOverlay = false
+                                    )
+                                }
+                            }
+                        }
+                    }
                     }
                 } else if (audioAtt != null) {
                     val audioCtx = androidx.compose.ui.platform.LocalContext.current
@@ -634,18 +673,22 @@ fun ChannelPostCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
-                    .padding(start = 12.dp, top = 4.dp, end = 12.dp)
+                    // نصف الكارد يخرج من الفقاعة: يتداخل مع حافتها السفلية ويقلّل المسافة
+                    .overlapUp(13.dp)
+                    .padding(start = 14.dp, end = 12.dp)
                     .horizontalScroll(rememberScrollState())
             ) {
                 if (!msg.forwardsLabel.isNullOrBlank()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
+                            .shadow(2.dp, RoundedCornerShape(50))
                             .clip(RoundedCornerShape(50))
-                            .background(subColor.copy(alpha = 0.08f))
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .background(__theme.surfaceColor)
+                            .border(0.5.dp, subColor.copy(alpha = 0.25f), RoundedCornerShape(50))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
-                        Text(msg.forwardsLabel, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(msg.forwardsLabel, color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         Spacer(modifier = Modifier.width(4.dp))
                         Icon(Icons.Filled.ArrowForward, contentDescription = "Forwards", tint = subColor, modifier = Modifier.size(14.dp))
                     }
@@ -655,39 +698,42 @@ fun ChannelPostCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                         modifier = Modifier
+                            .shadow(2.dp, RoundedCornerShape(50))
                             .clip(RoundedCornerShape(50))
-                            .background(subColor.copy(alpha = 0.08f))
+                            .background(__theme.surfaceColor)
+                            .border(0.5.dp, subColor.copy(alpha = 0.25f), RoundedCornerShape(50))
                             .clickable { showBreakdown = true }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         val topFour = msg.channelReactions.sortedByDescending { it.count }.take(4)
                         topFour.forEach { reaction ->
                             val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
                             if (url != null) {
-                                LottieEmojiReaction(url = url, size = 17.dp)
+                                LottieEmojiReaction(url = url, size = 15.dp)
                             } else {
-                                Text(reaction.emoji, fontSize = 13.sp)
+                                Text(reaction.emoji, fontSize = 12.sp)
                             }
                         }
                         val totalLabel = msg.totalInteractionsLabel
                             ?: formatReactionCount(msg.channelReactions.sumOf { it.count })
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(totalLabel, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(totalLabel, color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     }
                 }
                 if (msg.reactions.isNotEmpty()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
+                            .shadow(2.dp, RoundedCornerShape(50))
                             .clip(RoundedCornerShape(50))
-                            .background(subColor.copy(alpha = 0.14f))
+                            .background(__theme.surfaceColor)
                             .border(1.dp, subColor.copy(alpha = 0.3f), RoundedCornerShape(50))
-                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         msg.reactions.forEach { emoji ->
                             val myUrl = remember(emoji) { NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji)) }
                             if (myUrl != null) {
-                                LottieEmojiReaction(url = myUrl, size = 16.dp)
+                                LottieEmojiReaction(url = myUrl, size = 15.dp)
                             }
                         }
                     }
