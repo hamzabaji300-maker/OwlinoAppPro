@@ -89,6 +89,8 @@ class LabChatState(val kind: LabKind) {
     var panelExpanded by mutableStateOf(false)
     var closeAttachSignal by mutableStateOf(0)
     var showPollComposer by mutableStateOf(false)
+    var pendingMedia by mutableStateOf<Pair<List<Uri>, AttachmentType>?>(null)
+    var pendingCaption by mutableStateOf("")
 
     /** إرسال استفتاء ثم محاكاة تصويت أعضاء آخرين خلال ثوانٍ (لا يوجد خادم في المختبر). */
     fun sendPoll(poll: Poll, scope: CoroutineScope) {
@@ -262,7 +264,7 @@ class LabChatState(val kind: LabKind) {
     }
 
     /** إرسال مرفقات حقيقية: نسخ الملف داخل التطبيق ثم عرضه في الفقاعة (صورة / فيديو / صوت / ملف / رسالة صوتية). */
-    fun sendAttachments(context: Context, scope: CoroutineScope, uris: List<Uri>, type: AttachmentType) {
+    fun sendAttachments(context: Context, scope: CoroutineScope, uris: List<Uri>, type: AttachmentType, caption: String = "") {
         scope.launch {
             val built = withContext(Dispatchers.IO) { uris.mapNotNull { copyToApp(context, it, type) } }
             if (built.isEmpty()) return@launch
@@ -272,15 +274,16 @@ class LabChatState(val kind: LabKind) {
                 AttachmentType.DOCUMENT -> "[Document]"
                 else -> ""
             }
+            val cap = caption.trim()
             if (type == AttachmentType.IMAGE) {
                 // عدة صور = ألبوم في فقاعة واحدة
                 val id = built.first().first.messageId
                 val atts = built.map { it.first.copy(messageId = id) }
                 MediaIndex.put(id, File(Uri.parse(atts.first().url).path ?: "").absolutePath)
-                messages += labMsg(kind, marker, true, attachments = atts, id = id, views = if (kind.isChannel) "1" else null)
+                messages += labMsg(kind, if (cap.isNotEmpty()) cap else marker, true, attachments = atts, id = id, views = if (kind.isChannel) "1" else null)
             } else {
-                built.forEach { (att, _) ->
-                    messages += labMsg(kind, marker, true, attachments = listOf(att), id = att.messageId, views = if (kind.isChannel) "1" else null)
+                built.forEachIndexed { idx, (att, _) ->
+                    messages += labMsg(kind, if (idx == 0 && cap.isNotEmpty()) cap else marker, true, attachments = listOf(att), id = att.messageId, views = if (kind.isChannel) "1" else null)
                 }
             }
             simulateReply(scope, "", attachmentName = built.last().first.fileName)
@@ -529,7 +532,16 @@ fun LabMessagesScreen(
                                     state.showPanel = true
                                 }
                             },
-                            onAttachmentSelected = { uris, type -> state.sendAttachments(context, scope, uris, type) },
+                            onAttachmentSelected = { uris, type ->
+                                if (type == AttachmentType.IMAGE || type == AttachmentType.VIDEO) {
+                                    // معاينة + تعليق قبل الإرسال (مثل تيليجرام)؛ النص المكتوب يصبح تعليقًا
+                                    state.pendingCaption = state.text
+                                    state.text = ""
+                                    state.pendingMedia = uris to type
+                                } else {
+                                    state.sendAttachments(context, scope, uris, type)
+                                }
+                            },
                             replyingTo = state.replyingTo,
                             onCancelReply = { state.replyingTo = null },
                             editingMessage = state.editingMessage,
@@ -590,6 +602,29 @@ fun LabMessagesScreen(
                     }
                 }
             }
+        }
+    }
+
+    // ===== معاينة الوسائط مع التعليق =====
+    androidx.compose.animation.AnimatedVisibility(
+        visible = state.pendingMedia != null,
+        enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it } +
+            androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+        exit = androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it } +
+            androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
+    ) {
+        val pm = state.pendingMedia
+        if (pm != null) {
+            LabMediaCaptionScreen(
+                uris = pm.first,
+                type = pm.second,
+                initialCaption = state.pendingCaption,
+                onDismiss = { state.text = state.pendingCaption; state.pendingMedia = null },
+                onSend = { cap ->
+                    state.pendingMedia = null
+                    state.sendAttachments(context, scope, pm.first, pm.second, cap)
+                }
+            )
         }
     }
 
