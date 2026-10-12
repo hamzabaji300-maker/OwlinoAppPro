@@ -801,7 +801,7 @@ fun ReactionBreakdownDialog(
                             }
                             val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
                             if (url != null) {
-                                LottieEmojiReaction(url = url, size = 15.dp, tapToPlay = true, autoPlayOnce = remember(url) { ReactionPlayRegistry.consume(msg.id + "|" + reaction.emoji) })
+                                LottieEmojiReaction(url = url, size = 20.dp)
                             } else {
                                 Text(reaction.emoji, fontSize = 16.sp)
                             }
