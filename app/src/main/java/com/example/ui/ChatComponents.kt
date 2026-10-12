@@ -141,6 +141,7 @@ fun MessageBubble(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize(androidx.compose.animation.core.tween(200))
             .padding(horizontal = 8.dp, vertical = if (isLastInCluster) 2.dp else 0.5.dp)
             .padding(bottom = if (msg.reactions.isNotEmpty()) 16.dp else 0.dp),
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
@@ -719,7 +720,7 @@ fun ChannelPostCard(
                         topFour.forEach { reaction ->
                             val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
                             if (url != null) {
-                                LottieEmojiReaction(url = url, size = 15.dp, tapToPlay = true, autoPlayOnce = remember(url) { ReactionPlayRegistry.consume(msg.id + "|" + reaction.emoji) })
+                                LottieEmojiReaction(url = url, size = 15.dp, tapToPlay = true, autoPlayOnce = remember(url) { ReactionPlayRegistry.shouldPlay(msg.id + "|" + reaction.emoji) })
                             } else {
                                 Text(reaction.emoji, fontSize = 12.sp)
                             }
@@ -743,7 +744,7 @@ fun ChannelPostCard(
                         msg.reactions.forEach { emoji ->
                             val myUrl = remember(emoji) { NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji)) }
                             if (myUrl != null) {
-                                LottieEmojiReaction(url = myUrl, size = 15.dp, tapToPlay = true, autoPlayOnce = remember(myUrl) { ReactionPlayRegistry.consume(msg.id + "|" + emoji) })
+                                LottieEmojiReaction(url = myUrl, size = 15.dp, tapToPlay = true, autoPlayOnce = remember(myUrl) { ReactionPlayRegistry.shouldPlay(msg.id + "|" + emoji) })
                             }
                         }
                     }

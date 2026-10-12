@@ -92,7 +92,7 @@ fun ReactionChip(reactions: List<String>, messageId: String, modifier: Modifier 
             val shown = NotoEmojiMap.reactionToEmoji(em)
             val url = remember(em) { NotoEmojiMap.remoteUrlFor(shown) }
             if (url != null) {
-                val auto = remember(messageId, em) { ReactionPlayRegistry.consume("$messageId|$em") }
+                val auto = remember(messageId, em) { ReactionPlayRegistry.shouldPlay("$messageId|$em") }
                 LottieEmojiReaction(url = url, size = 20.dp, tapToPlay = true, autoPlayOnce = auto)
             } else Text(shown, fontSize = 15.sp)
         }
@@ -168,7 +168,13 @@ fun prefetchStaticEmojis(context: android.content.Context, emojis: List<String>)
  * ثم يبقى ثابتًا، ولا يتحرك ثانية إلا بالضغط عليه أو بالخروج والدخول مجددًا.
  */
 object ReactionPlayRegistry {
-    private val armed: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet<String>())
-    fun arm(key: String) { armed.add(key) }
-    fun consume(key: String): Boolean = armed.remove(key)
+    private val armed = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    fun arm(key: String) { armed[key] = System.currentTimeMillis() }
+
+    /** true خلال 6 ثوانٍ من اختيار التفاعل (أو دخول الشاشة)؛ غير مُستهلَك فلا تضيع الحركة بسبب إعادة التركيب. */
+    fun shouldPlay(key: String): Boolean {
+        val t = armed[key] ?: return false
+        return System.currentTimeMillis() - t < 6000L
+    }
+    fun consume(key: String): Boolean = shouldPlay(key)
 }

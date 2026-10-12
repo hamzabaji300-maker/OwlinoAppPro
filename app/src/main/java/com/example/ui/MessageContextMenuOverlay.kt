@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -70,11 +71,13 @@ val ChannelReactionEmojis = listOf(
 
 private class OverlayItem(val label: String, val icon: ImageVector, val danger: Boolean = false, val action: () -> Unit)
 
+private val EaseOut = androidx.compose.animation.core.FastOutSlowInEasing
+
 /**
- * قائمة الضغط المطوّل:
- *  - القناة: بطاقة مربعة في منتصف الشاشة فيها التفاعلات المخصّصة فقط، وتحتها قائمة الإجراءات.
- *  - الفردي/المجموعات (نمط تيليجرام): الفقاعة تبقى مضيئة، شريط تفاعلات فوقها، وقائمة إجراءات تحتها،
- *    وسهم يفتح شبكة التفاعلات الكاملة.
+ * قائمة الضغط المطوّل (بدون ارتداد ولا تتبّع: كل شيء يظهر في مكانه ويبقى ثابتًا):
+ *  - القناة: بطاقة صغيرة جميلة في منتصف الشاشة بالتفاعلات المخصّصة فقط (بدون عنوان)، وتحتها قائمة الإجراءات.
+ *  - الفردي/المجموعات (نمط تيليجرام): الفقاعة مضيئة، شريط تفاعلات فوقها، وقائمة إجراءات تحتها،
+ *    وسهم يفتح بطاقة كل الإيموجيات بتصنيفاتها.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -110,19 +113,10 @@ fun MessageContextMenuOverlay(
     val cfg = androidx.compose.ui.platform.LocalConfiguration.current
     val surface = MaterialTheme.colorScheme.surface
     val onSurface = MaterialTheme.colorScheme.onSurface
-
-    // حدود الفقاعة: نتابعها لحظات (أثناء انزلاق القائمة بعد الضغط) حتى تلتصق بها العناصر
-    var anchor by remember { mutableStateOf(bounds) }
-    LaunchedEffect(Unit) {
-        repeat(45) {
-            DustRegistry.bubbleBounds[message.id]?.let { anchor = it }
-            delay(16)
-        }
-    }
+    val anchor = bounds   // ثابتة: تُحدَّد بعد استقرار القائمة، فلا تتحرك العناصر من مكانها
 
     val scrimAlpha by androidx.compose.animation.core.animateFloatAsState(if (visible) 0.5f else 0f, tween(200), label = "ctx_scrim")
 
-    // عناصر الإجراءات
     val menuItems = buildList {
         if (!isChannel) add(OverlayItem("رد", Icons.AutoMirrored.Outlined.Reply) { onReply(); dismiss() })
         if (message.text.isNotBlank()) add(OverlayItem("نسخ", Icons.Outlined.ContentCopy) { onCopy(); dismiss() })
@@ -155,47 +149,48 @@ fun MessageContextMenuOverlay(
         }
 
         if (isChannel) {
-            // ============ القناة: بطاقة مربعة وسط الشاشة ============
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .widthIn(max = 340.dp)
-                    .padding(horizontal = 22.dp)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            // ============ القناة: بطاقة صغيرة جميلة وسط الشاشة ============
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 AnimatedVisibility(
                     visible = visible,
-                    enter = fadeIn(tween(160)) + scaleIn(spring(dampingRatio = 0.75f, stiffness = 400f), initialScale = 0.85f),
-                    exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.9f)
+                    enter = fadeIn(tween(180)) + scaleIn(tween(220, easing = EaseOut), initialScale = 0.94f),
+                    exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.96f)
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        modifier = Modifier.widthIn(max = 300.dp).padding(horizontal = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Surface(
-                            shape = RoundedCornerShape(24.dp),
+                            shape = RoundedCornerShape(28.dp),
                             color = surface,
-                            shadowElevation = 14.dp,
-                            modifier = Modifier.fillMaxWidth().aspectRatio(1f)
+                            shadowElevation = 18.dp,
+                            modifier = Modifier.size(264.dp)
                         ) {
-                            Column(Modifier.padding(start = 10.dp, end = 10.dp, top = 12.dp, bottom = 6.dp)) {
-                                Text(
-                                    "اختر تفاعلًا",
-                                    color = onSurface.copy(alpha = 0.6f), fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(start = 6.dp, bottom = 6.dp)
-                                )
+                            Box(Modifier.fillMaxSize()) {
                                 androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                                     columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(6),
+                                    contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 14.dp, bottom = 14.dp),
                                     modifier = Modifier.fillMaxSize()
                                 ) {
                                     gridItems(ChannelReactionEmojis, key = { it }) { e ->
                                         Box(
                                             Modifier
                                                 .aspectRatio(1f)
-                                                .clip(RoundedCornerShape(12.dp))
+                                                .clip(RoundedCornerShape(14.dp))
                                                 .clickable { onReactionSelected(e); dismiss() },
                                             contentAlignment = Alignment.Center
-                                        ) { StaticEmojiImage(e, 34.dp) }
+                                        ) { StaticEmojiImage(e, 30.dp) }
                                     }
                                 }
+                                // تلاشٍ ناعم عند الحافتين العليا والسفلى ليبدو التمرير سلسًا
+                                Box(
+                                    Modifier.align(Alignment.TopCenter).fillMaxWidth().height(14.dp)
+                                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(surface, Color.Transparent)))
+                                )
+                                Box(
+                                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(14.dp)
+                                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, surface)))
+                                )
                             }
                         }
                         if (showFullMenu) {
@@ -215,17 +210,19 @@ fun MessageContextMenuOverlay(
             val aTop = with(density) { anchor.top.toDp() }
             val aBottom = with(density) { anchor.bottom.toDp() }
             val barH = 52.dp
+            val cardH = minOf(380.dp, screenH * 0.55f)
             val barTop = if (has) (aTop - barH - 8.dp).coerceAtLeast(statusTop + 8.dp) else screenH * 0.3f
+            val expTop = minOf(barTop, screenH - cardH - navBottom - 12.dp).coerceAtLeast(statusTop + 8.dp)
             val menuH = 44.dp * menuItems.size + 12.dp
             val menuTop = if (has) minOf(aBottom + 8.dp, screenH - menuH - navBottom - 12.dp) else screenH * 0.45f
             val side = if (message.isMine) Alignment.TopEnd else Alignment.TopStart
+            val topOffset by androidx.compose.animation.core.animateDpAsState(if (expanded) expTop else barTop, tween(240, easing = EaseOut), label = "bar_top")
 
-            // شريط التفاعلات / الشبكة الموسّعة
             AnimatedVisibility(
                 visible = visible,
-                modifier = Modifier.align(side).padding(horizontal = 12.dp).offset(y = barTop),
-                enter = fadeIn(tween(160)) + scaleIn(spring(dampingRatio = 0.75f, stiffness = 400f), initialScale = 0.8f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
-                exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.85f)
+                modifier = Modifier.align(side).padding(horizontal = 12.dp).offset(y = topOffset),
+                enter = fadeIn(tween(160)) + scaleIn(tween(200, easing = EaseOut), initialScale = 0.92f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (message.isMine) 1f else 0f, 1f)),
+                exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.94f)
             ) {
                 AnimatedContent(
                     targetState = expanded,
@@ -252,41 +249,68 @@ fun MessageContextMenuOverlay(
                             }
                         }
                     } else {
-                        Surface(
-                            shape = RoundedCornerShape(22.dp), color = surface, shadowElevation = 12.dp,
-                            modifier = Modifier.width(screenW - 24.dp).height(minOf(340.dp, screenH * 0.5f))
-                        ) {
-                            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(8),
-                                contentPadding = PaddingValues(8.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                gridItems(TgAllReactions, key = { it }) { e ->
-                                    Box(
-                                        Modifier.aspectRatio(1f).clip(CircleShape).clickable { onReactionSelected(e); dismiss() },
-                                        contentAlignment = Alignment.Center
-                                    ) { StaticEmojiImage(e, 30.dp) }
-                                }
-                            }
-                        }
+                        ReactionPickerCard(
+                            surface = surface, onSurface = onSurface,
+                            modifier = Modifier.width(screenW - 24.dp).height(cardH),
+                            onPick = { e -> onReactionSelected(e); dismiss() }
+                        )
                     }
                 }
             }
 
-            // قائمة الإجراءات تحت الفقاعة (تُخفى أثناء الشبكة الموسّعة، وفي الضغط الخفيف)
             if (showFullMenu) {
                 AnimatedVisibility(
                     visible = visible && !expanded,
                     modifier = Modifier.align(side).padding(horizontal = 12.dp).offset(y = menuTop),
-                    enter = fadeIn(tween(160)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 400f), initialScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (message.isMine) 1f else 0f, 0f)),
-                    exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.92f)
+                    enter = fadeIn(tween(160)) + scaleIn(tween(200, easing = EaseOut), initialScale = 0.94f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (message.isMine) 1f else 0f, 0f)),
+                    exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.96f)
                 ) {
                     OverlayActionsCard(menuItems, surface, onSurface, Modifier.width(250.dp))
                 }
             }
         }
     }
+}
 
+/** بطاقة كل الإيموجيات: تبويب "المفضلة" (ترتيب تيليجرام) + كل تصنيفات الإيموجي، مع تمرير سلس. */
+@Composable
+private fun ReactionPickerCard(surface: Color, onSurface: Color, modifier: Modifier, onPick: (String) -> Unit) {
+    var cat by remember { mutableIntStateOf(0) }
+    val accent = MaterialTheme.colorScheme.primary
+    val list = if (cat == 0) TgAllReactions else EMOJI_CATEGORIES[cat - 1].emojis
+    Surface(shape = RoundedCornerShape(24.dp), color = surface, shadowElevation = 14.dp, modifier = modifier) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ReactionTab(Icons.Outlined.StarBorder, cat == 0, accent, onSurface) { cat = 0 }
+                EMOJI_CATEGORIES.forEachIndexed { i, c -> ReactionTab(c.icon, cat == i + 1, accent, onSurface) { cat = i + 1 } }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(onSurface.copy(alpha = 0.08f)))
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(8),
+                contentPadding = PaddingValues(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                gridItems(list, key = { it }) { e ->
+                    Box(
+                        Modifier.aspectRatio(1f).clip(CircleShape).clickable { onPick(e) },
+                        contentAlignment = Alignment.Center
+                    ) { Text(e, fontSize = 26.sp) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReactionTab(icon: ImageVector, selected: Boolean, accent: Color, inactive: Color, onClick: () -> Unit) {
+    Box(
+        Modifier.size(34.dp).clip(CircleShape).background(if (selected) accent.copy(alpha = 0.2f) else Color.Transparent).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) { Icon(icon, contentDescription = null, tint = if (selected) accent else inactive.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) }
 }
 
 @Composable

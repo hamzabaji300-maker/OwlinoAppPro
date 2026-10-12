@@ -436,13 +436,18 @@ fun LabMessagesScreen(
                         onMoreClick = {},
                         onLongClick = { m, bounds, heavy ->
                             if (!isSelectionMode) {
-                                contextMsg = m
-                                contextFull = heavy
-                                contextBounds = bounds
-                                // نفس سلوك الأصل: أعلى الرسالة يصل لثلث الشاشة العلوي لتظهر كاملة فوق القائمة
-                                val targetTopPx = with(density) { configuration.screenHeightDp.dp.toPx() } * 0.32f
-                                if (bounds.top > targetTopPx) {
-                                    scope.launch { listState.animateScrollBy(bounds.top - targetTopPx) }
+                                scope.launch {
+                                    // الفردي/المجموعات: نُنزل الرسالة لمكان مناسب أولًا، ثم نعرض القائمة ثابتة بعد استقرار التمرير
+                                    val h = with(density) { configuration.screenHeightDp.dp.toPx() }
+                                    val targetTopPx = h * 0.32f
+                                    val minTopPx = h * 0.20f
+                                    if (!kind.isChannel && (bounds.top > targetTopPx || bounds.top < minTopPx)) {
+                                        listState.animateScrollBy(bounds.top - targetTopPx)
+                                        delay(48)
+                                    }
+                                    contextBounds = DustRegistry.bubbleBounds[m.id] ?: bounds
+                                    contextFull = heavy
+                                    contextMsg = m
                                 }
                             }
                         },
