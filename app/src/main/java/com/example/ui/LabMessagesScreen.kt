@@ -746,18 +746,24 @@ fun LabMessagesScreen(
         )
     }
 
-    // ===== إعادة التوجيه: إلى الشاشات الأخرى فعليًا =====
+    // ===== المشاركة / إعادة التوجيه: ورقة سفلية بنمط تيليجرام =====
     state.forwardMsg?.let { fm ->
-        LabForwardDialog(
-            primaryColor = MaterialTheme.colorScheme.primary,
-            targets = forwardTargets.map { it.kind.title },
-            onPick = { i ->
-                val target = forwardTargets[i]
-                target.receiveForward(fm.text, fm.attachments)
+        LabShareSheet(
+            targetTitles = forwardTargets.map { it.kind.title },
+            onDismiss = { state.forwardMsg = null },
+            onCopyLink = {
+                clipboard.setText(AnnotatedString("https://owlino.app/m/" + fm.id.take(8)))
                 state.forwardMsg = null
-                state.showToast("Forwarded to ${target.kind.title}", ToastType.INFO)
+                state.showToast("Link copied to clipboard", ToastType.COPY)
             },
-            onDismiss = { state.forwardMsg = null }
+            onSend = { picks ->
+                picks.forEach { p ->
+                    if (p == 0) state.update(fm) { it.copy(isSaved = true) }
+                    else forwardTargets[p - 1].receiveForward(fm.text, fm.attachments)
+                }
+                state.forwardMsg = null
+                state.showToast(if (picks.size == 1) "Forwarded" else "Forwarded to ${picks.size} chats", ToastType.INFO)
+            }
         )
     }
 

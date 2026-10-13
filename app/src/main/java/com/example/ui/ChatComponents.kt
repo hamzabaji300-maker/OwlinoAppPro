@@ -143,7 +143,7 @@ fun MessageBubble(
             .fillMaxWidth()
             .animateContentSize(androidx.compose.animation.core.tween(200))
             .padding(horizontal = 8.dp, vertical = if (isLastInCluster) 2.dp else 0.5.dp)
-            .padding(bottom = if (msg.reactions.isNotEmpty()) 16.dp else 0.dp),
+            .padding(bottom = if (msg.reactions.isNotEmpty()) 12.dp else 0.dp),
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
@@ -592,29 +592,70 @@ fun MessageBubble(
                                     LinkPreviewCard(url = detectedUrl, isMe = isMe, textColor = textColor)
                                 }
                                 val richMulti = remember(cleanText) { buildRichMessageContent(cleanText, 19.sp, 20.dp) }
-                                Text(
-                                    text = richMulti.text,
-                                    inlineContent = richMulti.inlineContent,
-                                    color = textColor,
-                                    fontSize = 16.5.sp,
-                                    lineHeight = 24.sp,
-                                    style = androidx.compose.ui.text.TextStyle(textDirection = androidx.compose.ui.text.style.TextDirection.Content)
-                                )
-                                Row(
-                                    modifier = Modifier
-                                        .align(Alignment.End)
-                                        .padding(top = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    MsgTimeText(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
-                                    MessageIndicators(
-                                        isMe = isMe,
-                                        status = msg.status,
-                                        isRead = false,
-                                        isSaved = msg.isSaved,
-                                        isPinned = msg.isPinned,
-                                        isImageOverlay = false
+                                // الوقت على سطر النص الأخير إن اتّسع (وإلا ينزل لسطر جديد): نحجز له فراغًا في آخر النص
+                                // ونرسمه فوق ذلك الفراغ، في جهة نهاية اتجاه النص (يسارًا للعربية ويمينًا للاتينية).
+                                val textRtl = remember(cleanText) {
+                                    var r = false
+                                    for (ch in cleanText) {
+                                        val d = Character.getDirectionality(ch)
+                                        if (d == Character.DIRECTIONALITY_LEFT_TO_RIGHT) { r = false; break }
+                                        if (d == Character.DIRECTIONALITY_RIGHT_TO_LEFT || d == Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC) { r = true; break }
+                                    }
+                                    r
+                                }
+                                val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+                                val densityLocal = androidx.compose.ui.platform.LocalDensity.current
+                                val timeShown = msg.time.removePrefix("\uD83D\uDC41 ")
+                                val timePx = remember(timeShown) {
+                                    measurer.measure(
+                                        androidx.compose.ui.text.AnnotatedString(timeShown),
+                                        androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                    ).size.width
+                                }
+                                val extraDp = (if (msg.time.startsWith("\uD83D\uDC41 ")) 20 else 0) +
+                                    (if (isMe) 20 else 0) + (if (msg.isPinned) 16 else 0) + (if (msg.isSaved) 16 else 0) + 14
+                                val gapPx = timePx + with(densityLocal) { extraDp.dp.toPx() }
+                                val withGap = remember(richMulti, gapPx) {
+                                    androidx.compose.ui.text.buildAnnotatedString {
+                                        append(richMulti.text)
+                                        append(" ")
+                                        appendInlineContent("lab_time_gap", "\u00A0")
+                                    }
+                                }
+                                val gapContent = remember(richMulti, gapPx) {
+                                    richMulti.inlineContent + mapOf(
+                                        "lab_time_gap" to androidx.compose.foundation.text.InlineTextContent(
+                                            androidx.compose.ui.text.Placeholder(
+                                                width = with(densityLocal) { gapPx.toSp() },
+                                                height = 16.sp,
+                                                placeholderVerticalAlign = androidx.compose.ui.text.PlaceholderVerticalAlign.TextBottom
+                                            )
+                                        ) { }
                                     )
+                                }
+                                Box {
+                                    Text(
+                                        text = withGap,
+                                        inlineContent = gapContent,
+                                        color = textColor,
+                                        fontSize = 16.5.sp,
+                                        lineHeight = 24.sp,
+                                        style = androidx.compose.ui.text.TextStyle(textDirection = androidx.compose.ui.text.style.TextDirection.Content)
+                                    )
+                                    Row(
+                                        modifier = Modifier.align(if (textRtl) Alignment.BottomStart else Alignment.BottomEnd),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        MsgTimeText(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                                        MessageIndicators(
+                                            isMe = isMe,
+                                            status = msg.status,
+                                            isRead = false,
+                                            isSaved = msg.isSaved,
+                                            isPinned = msg.isPinned,
+                                            isImageOverlay = false
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -628,7 +669,7 @@ fun MessageBubble(
                     modifier = Modifier
                         .align(if (isMe) Alignment.BottomEnd else Alignment.BottomStart)
                         .padding(horizontal = 10.dp)
-                        .offset(y = 14.dp)
+                        .offset(y = 11.dp)
                 )
             }
         }

@@ -81,11 +81,11 @@ fun ReactionChip(reactions: List<String>, messageId: String, modifier: Modifier 
     val distinct = reactions.distinct()
     Row(
         modifier = modifier
-            .shadow(2.dp, CircleShape)
+            .shadow(1.5.dp, CircleShape)
             .clip(CircleShape)
             .background(theme.surfaceColor)
             .border(0.5.dp, theme.textSecondary.copy(alpha = 0.25f), CircleShape)
-            .padding(horizontal = 7.dp, vertical = 3.dp),
+            .padding(horizontal = 5.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         distinct.take(3).forEach { em ->
@@ -93,12 +93,12 @@ fun ReactionChip(reactions: List<String>, messageId: String, modifier: Modifier 
             val url = remember(em) { NotoEmojiMap.remoteUrlFor(shown) }
             if (url != null) {
                 val auto = remember(messageId, em) { ReactionPlayRegistry.shouldPlay("$messageId|$em") }
-                LottieEmojiReaction(url = url, size = 20.dp, tapToPlay = true, autoPlayOnce = auto)
-            } else Text(shown, fontSize = 15.sp)
+                LottieEmojiReaction(url = url, size = 15.dp, tapToPlay = true, autoPlayOnce = auto)
+            } else Text(shown, fontSize = 12.sp)
         }
         if (reactions.size > 1) {
-            Spacer(Modifier.width(3.dp))
-            Text("${reactions.size}", fontSize = 12.sp, color = theme.textSecondary, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.width(2.dp))
+            Text("${reactions.size}", fontSize = 11.sp, color = theme.textSecondary, fontWeight = FontWeight.Medium)
         }
     }
 }
