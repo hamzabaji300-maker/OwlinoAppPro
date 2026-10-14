@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -163,14 +164,15 @@ fun LabShareSheet(
                                                 Text(entry.value.take(1), color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
-                                        AnimatedVisibility(
-                                            visible = isSel,
-                                            modifier = Modifier.align(Alignment.BottomEnd),
-                                            enter = scaleIn(tween(160)) + fadeIn(tween(160)),
-                                            exit = scaleOut(tween(120)) + fadeOut(tween(120))
-                                        ) {
+                                        val badgeScale by animateFloatAsState(if (isSel) 1f else 0f, tween(160), label = "share_badge")
+                                        if (badgeScale > 0.01f) {
                                             Box(
-                                                Modifier.size(24.dp).clip(CircleShape).background(accent),
+                                                Modifier
+                                                    .align(Alignment.BottomEnd)
+                                                    .graphicsLayer { scaleX = badgeScale; scaleY = badgeScale; alpha = badgeScale }
+                                                    .size(24.dp)
+                                                    .clip(CircleShape)
+                                                    .background(accent),
                                                 contentAlignment = Alignment.Center
                                             ) { Icon(Icons.Outlined.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp)) }
                                         }
