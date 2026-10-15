@@ -13,6 +13,13 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 
 object AppState {
+    /** نطاق على مستوى التطبيق: رفع المرفقات يكمل حتى لو خرج المستخدم من شاشة المحادثة. */
+    val sendScope: kotlinx.coroutines.CoroutineScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() +
+            kotlinx.coroutines.Dispatchers.Main +
+            kotlinx.coroutines.CoroutineExceptionHandler { _, e -> e.printStackTrace() }
+    )
+
     /** رسائل يرسلها التطبيق الآن من الشاشة (حتى لا يرسلها عامل الإرسال المؤجّل مرة ثانية). */
     val inFlightMessageIds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 

@@ -416,6 +416,7 @@ cachedChatDao.insertCachedChats(listOf(existingCachedChat.copy(unread_count = 0)
 
     var myUserId by remember { mutableStateOf<String?>(null) }
     var showGifPicker by remember { mutableStateOf(false) }
+    var pendingVideoUris by remember { mutableStateOf<List<android.net.Uri>?>(null) }
     // Room هو المصدر الوحيد: كل رسالة (فردية/مجموعة/قناة/بوت/محفوظة) تصل للواجهة من هنا فقط.
     // نستعمل معرّف الجلسة المخزّنة محلياً مباشرة حتى لا ننتظر الشبكة (أول إطار صحيح isMine).
     val roomUserId = myUserId ?: (try { com.example.supabase.auth.currentSessionOrNull()?.user?.id } catch (e: Exception) { null })
@@ -2253,6 +2254,307 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                          if (isBotManagerChat || isUserBotChat) { messageText = ""; botSend(cmd) } else messageText = cmd
                      })
                  }
+                // معالج إرسال المرفقات (نقلناه إلى متغير ليستدعيه أيضًا مربع اختيار جودة الفيديو)
+                val attachmentHandler: (List<android.net.Uri>, AttachmentType) -> Unit = handler@{ uris, type ->
+                   if (isUserBotChat) {
+                       android.widget.Toast.makeText(context, "Bots don't support attachments yet", android.widget.Toast.LENGTH_SHORT).show()
+                       return@handler
+                   }
+                   if (isBotManagerChat) {
+                       runBotManagerImage(uris.firstOrNull(), type)
+                       return@handler
+                   }
+                   com.example.AppState.sendScope.launch {
+                        if (myUserId == null) return@launch
+                        val bucketName = when(type) {
+                            AttachmentType.IMAGE -> "chat-images"
+                            AttachmentType.VIDEO -> "chat-videos"
+                            AttachmentType.VOICE, AttachmentType.AUDIO ->"voice-messages"
+                            else -> "chat-files"
+                        }
+                        // مدة بقاء الملف على الخادم: المحادثات الفردية 30 يومًا، المجموعات والقنوات 180 يومًا
+                        val uploadScope = if (currentChat?.isGroup == true || currentChat?.isChannel == true) "group" else "direct"
+                       val msgType = when(type) {
+                          AttachmentType.IMAGE -> "image"
+                          AttachmentType.VIDEO -> "video"
+                          AttachmentType.VOICE, AttachmentType.AUDIO -> "voice"
+                          else -> "file"
+                       }
+                       val textStr = if (type == AttachmentType.IMAGE) (if(uris.count() > 1)"[Album]" else "[Photo]")
+                          else if (type == AttachmentType.VOICE || type == AttachmentType.AUDIO) "[Voice]"
+                          else if (uris.count() > 1) "[Documents]" else "[Document]"
+                    // النص المكتوب في خانة الرسالة يصبح تعليقاً (caption) على أول مرفق (صورة/فيديو/ملف)
+                    val captionText = if (type == AttachmentType.VOICE || type == AttachmentType.AUDIO) "" else messageText.trim()
+                    val firstText = captionText.ifBlank { textStr }
+                    if (captionText.isNotBlank()) { messageText = "" }
+
+                    val batchId = java.util.UUID.randomUUID().toString()
+                     // Section 6.3: pre-compute real filename+size for DOCUMENT attachments.
+                     val docMetaByUri = if (type == AttachmentType.DOCUMENT) {
+                            uris.associateWith { uri ->
+                                val cached = PickedFileMetaCache.map[uri.toString()]
+                                if (cached != null) {
+                                    cached
+                                } else {
+                                    var name: String? = null
+                                    var size: Long? = null
+                                    try {
+                                        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                                            val nameIdx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                                            val sizeIdx = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                                            if (c.moveToFirst()) {
+                                                if (nameIdx >= 0) name = c.getString(nameIdx)
+                                                if (sizeIdx >= 0 && !c.isNull(sizeIdx)) size = c.getLong(sizeIdx)
+                                            }
+                                        }
+                                    } catch (e: Exception) {}
+                                    Pair(name, size)
+                                }
+                            }
+                     } else null
+                    if (type == AttachmentType.VIDEO) {
+                        toastNotification = ToastNotification(System.currentTimeMillis(), "جارٍ تجهيز الفيديو، قد يستغرق لحظات...", ToastType.INFO)
+                    }
+                    val tempMsgsWithUris = uris.withIndex().mapNotNull { (__idx, uri) ->
+                        // فحص حد الحجم قبل أي نسخ أو رفع (حدود الخطة المجانية)
+                        val limitError = com.example.util.UploadLimits.check(type, com.example.util.MediaUploader.getFileSize(context, uri))
+                        if (limitError != null) {
+                            toastNotification = ToastNotification(System.currentTimeMillis(), limitError, ToastType.INFO)
+                            return@mapNotNull null
+                        }
+                        var calculatedRatio: Float? = null
+                        if (type == AttachmentType.IMAGE) {
+                            // النسبة بعد تطبيق اتجاه EXIF حتى لا تُعرض صور الكاميرا العمودية بنسبة خاطئة
+                            calculatedRatio = com.example.util.MediaUploader.displayAspectRatio(context, uri)
+                        } else if (type == AttachmentType.VOICE) {
+                            // نستخرج مدة التسجيل (مللي) من اسم الملف ونخزّنها بالثواني في حقل النسبة
+                            // (media_aspect_ratio) لأنه غير مستخدم أصلًا للصوت، فنتفادى تعديل قاعدة البيانات.
+                            try {
+                                val m = Regex("voice_dur(\\d+)_").find(uri.toString())
+                                val durMs = m?.groupValues?.get(1)?.toLongOrNull()
+                                if (durMs != null) calculatedRatio = durMs / 1000f
+                            } catch (e: Exception) {}
+                        }
+                        
+                        val tempId = java.util.UUID.randomUUID().toString()
+                        var localUriStr = uri.toString()
+                        try {
+                            val ext = when (type) {
+                                AttachmentType.IMAGE -> ".jpg"
+                                AttachmentType.VIDEO -> ".mp4"
+                                AttachmentType.AUDIO, AttachmentType.VOICE -> ".m4a"
+                                else -> ""
+                            }
+                            // نسخ بالتدفق (دون تحميل الملف كله في الذاكرة)
+                            val localFile = com.example.util.LocalFileManager.saveFromUri(context, uri, "temp_${tempId}$ext")
+                            if (localFile != null) {
+                                localUriStr = localFile.toURI().toString()
+                            }
+                        } catch(e: Exception) {}
+
+                        val docFileName = docMetaByUri?.get(uri)?.first
+                        val docFileSize = docMetaByUri?.get(uri)?.second
+                        val tempAttachment = Attachment(messageId = tempId, type = type, url = localUriStr, aspectRatio = calculatedRatio, fileName = docFileName, fileSize = docFileSize)
+                        val tempMsg = MessageModel(
+                            id = tempId,
+                            text = if (__idx == 0) firstText else textStr,
+                            time = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")),
+                            isMine = true,
+                            replyToId = replyingTo?.id,
+                            replyTo = replyingTo,
+                            attachments = listOf(tempAttachment),
+                            status = MessageStatus.SENDING,
+                            mediaGroupId = batchId
+                        )
+                        Pair(tempMsg, android.net.Uri.parse(localUriStr))
+                    }
+                    
+                    // Insert all optimistic messages at once
+                    messages = (messages + tempMsgsWithUris.map { it.first }).distinctBy { it.id }
+                    SendSound.play(context)
+
+                    // Optimistic update of local chat lists
+                    com.example.AppState.sendScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val existingChat = chatDao.getChatById(chatId)
+                            if (existingChat != null) {
+                                val firstLocalUri = tempMsgsWithUris.firstOrNull()?.second?.toString()
+                                chatDao.insert(existingChat.copy(
+                                    message = firstText,
+                                    time = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")),
+                                    timestamp = System.currentTimeMillis(),
+                                    isMine = true,
+                                    isReadReceipt = false,
+                                    lastMediaType = msgType,
+                                    lastMediaUrl = firstLocalUri,
+                                    lastThumbnailUrl = if (type == AttachmentType.IMAGE) firstLocalUri else null
+                                ))
+                            }
+                            val existingCachedChat = cachedChatDao.getCachedChatById(chatId)
+                            if (existingCachedChat != null) {
+                                cachedChatDao.insertCachedChats(listOf(existingCachedChat.copy(
+                                    last_message = firstText,
+                                    time_str = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")),
+                                    timestamp = System.currentTimeMillis()
+                                )))
+                            }
+                            for (pair in tempMsgsWithUris) {
+                                cachedMessageDao.insertMerged(
+                                    com.example.cache.CachedMessage(
+                                        id = pair.first.id,
+                                        chat_id = chatId,
+                                        sender_id = myUserId ?: "",
+                                        content = pair.first.text,
+                                        created_at = java.time.Instant.now().toString(),
+                                        status = "SENDING",
+                                        message_type = msgType,
+                                        media_url = pair.second.toString(),
+                                        reply_to_id = replyingTo?.id,
+                                        media_aspect_ratio = pair.first.attachments.firstOrNull()?.aspectRatio,
+                                        media_group_id = batchId
+                                    )
+                                )
+                            }
+                        } catch(e: Exception) {}
+                    }
+                    // Upload in parallel
+                    for (pair in tempMsgsWithUris) {
+                        val tempMsg = pair.first
+                        val uri = pair.second
+                        com.example.AppState.inFlightMessageIds.add(tempMsg.id)
+                        launch(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                val calculatedRatio = tempMsg.attachments.firstOrNull()?.aspectRatio
+                                val fileName = java.util.UUID.randomUUID().toString() + "-" +System.currentTimeMillis()
+                                val path = "$chatId/$myUserId/$fileName"
+                                run {
+                                    val signedUrl = com.example.util.MediaUploader.prepareAndUpload(
+                                        context = context,
+                                        supabase = com.example.supabase,
+                                        bucketName = bucketName,
+                                        path = path,
+                                        uri = uri,
+                                        type = type,
+                                        chatId = chatId,
+                                        scope = uploadScope,
+                                        messageId = tempMsg.id
+                                    )
+
+                                    // نولّد ونرفع نسخة صغيرة مضغوطة (للصور بس) — هذا اللي يخلي
+                                    // العرض داخل الدردشة سريع (كيما تيليجرام)، بدل تحميل الصورة الكاملة كل مرة
+                                    var thumbnailSignedUrl: String? = null
+                                    if (type == AttachmentType.IMAGE) {
+                                        try {
+                                            val thumbBytes = com.example.util.ThumbnailUtils.generateThumbnailBytes(context, uri)
+                                            if (thumbBytes != null) {
+                                                if (com.example.util.R2Uploader.isConfigured) {
+                                                    thumbnailSignedUrl = com.example.util.R2Uploader.uploadBytes(
+                                                        com.example.supabase, chatId, uploadScope, "thumb", "image/jpeg", thumbBytes
+                                                    )
+                                                } else {
+                                                    val thumbPath = "$chatId/$myUserId/thumb_$fileName"
+                                                    com.example.supabase.storage[bucketName].upload(thumbPath, thumbBytes)
+                                                    thumbnailSignedUrl = com.example.supabase.storage[bucketName].createSignedUrl(thumbPath, kotlin.time.Duration.parse("3650d"))
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            // إذا فشل توليد المصغرة لأي سبب، نكمل بالصورة الأصلية بلا ما نوقف الإرسال
+                                        }
+                                    }
+
+                                    val insertData = MessageInsert(
+                                        chat_id = chatId,
+                                        sender_id = myUserId ?: "",
+                                        content = tempMsg.text,
+                                        message_type = msgType,
+                                        media_url = signedUrl,
+                                        thumbnail_url = thumbnailSignedUrl,
+                                        reply_to_id = replyingTo?.id,
+                                        media_aspect_ratio = calculatedRatio,
+                                        media_group_id = batchId
+                                    )
+                                    val result = com.example.util.MessageSender.insert(com.example.supabase, insertData, tempMsg.id)
+                                    
+                                    val timeStr = formatTimeSafe(result.created_at)
+                                    // نخفي النسخة المؤقتة فورًا حتى لا يعيدها أي دمج قديم فيظهر المرفق مرتين
+                                    if (result.id != tempMsg.id) deletedMessageIds.add(tempMsg.id)
+                                    val docMeta = docMetaByUri?.get(uri)
+                                    val attachment = Attachment(messageId = result.id, type = type, url = signedUrl, thumbnailUrl = result.thumbnail_url, aspectRatio = calculatedRatio, fileName = docMeta?.first, fileSize = docMeta?.second)
+                                    try {
+                                        cachedMessageDao.insertMerged(
+                                            com.example.cache.CachedMessage(
+                                                id = result.id,
+                                                chat_id = result.chat_id,
+                                                sender_id = result.sender_id,
+                                                content = result.content,
+                                                created_at = result.created_at,
+                                                status = "SENT",
+                                                message_type = result.message_type,
+                                                media_url = result.media_url,
+                                                thumbnail_url = result.thumbnail_url,
+                                                reply_to_id = result.reply_to_id,
+                                                media_aspect_ratio = calculatedRatio,
+                                                media_group_id = result.media_group_id
+                                            )
+                                        )
+                                        if (result.id != tempMsg.id) cachedMessageDao.deleteMessageById(tempMsg.id)
+                                    } catch(e: Exception) {}
+                                    
+                                    val newMsg = MessageModel(
+                                        id = result.id,
+                                        text = result.content,
+                                        time = timeStr,
+                                        isMine = true,
+                                        replyToId = replyingTo?.id,
+                                        replyTo = replyingTo,
+                                        attachments = listOf(attachment),
+                                        status = MessageStatus.SENT,
+                                        createdAtExact = result.created_at,
+                                        mediaGroupId = result.media_group_id
+                                    )
+                                    
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        val alreadyExists = messages.any { it.id == result.id && it.id != tempMsg.id }
+                                        messages = if (alreadyExists) {
+                                            messages.filter { it.id != tempMsg.id }
+                                        } else {
+                                            messages.map {
+                                                if (it.id == tempMsg.id) newMsg else it
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch(e: Exception) {
+                                e.printStackTrace()
+                                val isNetworkError = com.example.util.NetworkUtils.isNetworkError(context, e)
+                                
+                                if (isNetworkError) {
+                                    val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.example.worker.PendingMessageWorker>()
+                                        .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                                        .build()
+                                    androidx.work.WorkManager.getInstance(context).enqueueUniqueWork("PendingMessageUpload", androidx.work.ExistingWorkPolicy.APPEND_OR_REPLACE, workRequest)
+                                    // مهم: لا نضع الحالة "فشل" هنا. الرسالة تبقى "قيد الإرسال" (SENDING)
+                                    // لأن عامل الإرسال المؤجّل يعيد فقط الرسائل بهذه الحالة، وسيرسلها
+                                    // تلقائيًا فور عودة الإنترنت.
+                                } else {
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        messages = messages.map {
+                                            if (it.id == tempMsg.id) it.copy(status = MessageStatus.FAILED) else it
+                                        }
+                                        android.widget.Toast.makeText(context, "تعذّر إرسال المرفق: ${(e.message ?: "").lineSequence().firstOrNull()?.take(80) ?: ""}", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        try { cachedMessageDao.updateMessageStatus(tempMsg.id, "FAILED") } catch(ex: Exception) {}
+                                    }
+                                }
+                            } finally {
+                                com.example.AppState.inFlightMessageIds.remove(tempMsg.id)
+                            }
+                        }
+                    }
+                    replyingTo = null
+                  }
+                }
                  MessageInputBar(
                      onOpenGifPicker = {
                          if (isUserBotChat || isBotManagerChat) {
@@ -2456,305 +2758,25 @@ MessageStatus.SENT, time = timeStr) else it
                }
              },
              onAttachmentSelected = { uris, type ->
-                   if (isUserBotChat) {
-                       android.widget.Toast.makeText(context, "Bots don't support attachments yet", android.widget.Toast.LENGTH_SHORT).show()
-                       return@MessageInputBar
-                   }
-                   if (isBotManagerChat) {
-                       runBotManagerImage(uris.firstOrNull(), type)
-                       return@MessageInputBar
-                   }
-                   coroutineScope.launch {
-                        if (myUserId == null) return@launch
-                        val bucketName = when(type) {
-                            AttachmentType.IMAGE -> "chat-images"
-                            AttachmentType.VIDEO -> "chat-videos"
-                            AttachmentType.VOICE, AttachmentType.AUDIO ->"voice-messages"
-                            else -> "chat-files"
-                        }
-                        // مدة بقاء الملف على الخادم: المحادثات الفردية 30 يومًا، المجموعات والقنوات 180 يومًا
-                        val uploadScope = if (currentChat?.isGroup == true || currentChat?.isChannel == true) "group" else "direct"
-                       val msgType = when(type) {
-                          AttachmentType.IMAGE -> "image"
-                          AttachmentType.VIDEO -> "video"
-                          AttachmentType.VOICE, AttachmentType.AUDIO -> "voice"
-                          else -> "file"
-                       }
-                       val textStr = if (type == AttachmentType.IMAGE) (if(uris.count() > 1)"[Album]" else "[Photo]")
-                          else if (type == AttachmentType.VOICE || type == AttachmentType.AUDIO) "[Voice]"
-                          else if (uris.count() > 1) "[Documents]" else "[Document]"
-                    // النص المكتوب في خانة الرسالة يصبح تعليقاً (caption) على أول مرفق (صورة/فيديو/ملف)
-                    val captionText = if (type == AttachmentType.VOICE || type == AttachmentType.AUDIO) "" else messageText.trim()
-                    val firstText = captionText.ifBlank { textStr }
-                    if (captionText.isNotBlank()) { messageText = "" }
-
-                    val batchId = java.util.UUID.randomUUID().toString()
-                     // Section 6.3: pre-compute real filename+size for DOCUMENT attachments.
-                     val docMetaByUri = if (type == AttachmentType.DOCUMENT) {
-                            uris.associateWith { uri ->
-                                val cached = PickedFileMetaCache.map[uri.toString()]
-                                if (cached != null) {
-                                    cached
-                                } else {
-                                    var name: String? = null
-                                    var size: Long? = null
-                                    try {
-                                        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-                                            val nameIdx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                                            val sizeIdx = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
-                                            if (c.moveToFirst()) {
-                                                if (nameIdx >= 0) name = c.getString(nameIdx)
-                                                if (sizeIdx >= 0 && !c.isNull(sizeIdx)) size = c.getLong(sizeIdx)
-                                            }
-                                        }
-                                    } catch (e: Exception) {}
-                                    Pair(name, size)
-                                }
-                            }
-                     } else null
+                    // الفيديو: نسأل عن الجودة أولًا ثم نرسل. غيره يُرسل مباشرة.
                     if (type == AttachmentType.VIDEO) {
-                        toastNotification = ToastNotification(System.currentTimeMillis(), "جارٍ تجهيز الفيديو، قد يستغرق لحظات...", ToastType.INFO)
+                        pendingVideoUris = uris
+                    } else {
+                        attachmentHandler(uris, type)
                     }
-                    val tempMsgsWithUris = uris.withIndex().mapNotNull { (__idx, uri) ->
-                        // فحص حد الحجم قبل أي نسخ أو رفع (حدود الخطة المجانية)
-                        val limitError = com.example.util.UploadLimits.check(type, com.example.util.MediaUploader.getFileSize(context, uri))
-                        if (limitError != null) {
-                            toastNotification = ToastNotification(System.currentTimeMillis(), limitError, ToastType.INFO)
-                            return@mapNotNull null
-                        }
-                        var calculatedRatio: Float? = null
-                        if (type == AttachmentType.IMAGE) {
-                            // النسبة بعد تطبيق اتجاه EXIF حتى لا تُعرض صور الكاميرا العمودية بنسبة خاطئة
-                            calculatedRatio = com.example.util.MediaUploader.displayAspectRatio(context, uri)
-                        } else if (type == AttachmentType.VOICE) {
-                            // نستخرج مدة التسجيل (مللي) من اسم الملف ونخزّنها بالثواني في حقل النسبة
-                            // (media_aspect_ratio) لأنه غير مستخدم أصلًا للصوت، فنتفادى تعديل قاعدة البيانات.
-                            try {
-                                val m = Regex("voice_dur(\\d+)_").find(uri.toString())
-                                val durMs = m?.groupValues?.get(1)?.toLongOrNull()
-                                if (durMs != null) calculatedRatio = durMs / 1000f
-                            } catch (e: Exception) {}
-                        }
-                        
-                        val tempId = java.util.UUID.randomUUID().toString()
-                        var localUriStr = uri.toString()
-                        try {
-                            val ext = when (type) {
-                                AttachmentType.IMAGE -> ".jpg"
-                                AttachmentType.VIDEO -> ".mp4"
-                                AttachmentType.AUDIO, AttachmentType.VOICE -> ".m4a"
-                                else -> ""
-                            }
-                            // نسخ بالتدفق (دون تحميل الملف كله في الذاكرة)
-                            val localFile = com.example.util.LocalFileManager.saveFromUri(context, uri, "temp_${tempId}$ext")
-                            if (localFile != null) {
-                                localUriStr = localFile.toURI().toString()
-                            }
-                        } catch(e: Exception) {}
-
-                        val docFileName = docMetaByUri?.get(uri)?.first
-                        val docFileSize = docMetaByUri?.get(uri)?.second
-                        val tempAttachment = Attachment(messageId = tempId, type = type, url = localUriStr, aspectRatio = calculatedRatio, fileName = docFileName, fileSize = docFileSize)
-                        val tempMsg = MessageModel(
-                            id = tempId,
-                            text = if (__idx == 0) firstText else textStr,
-                            time = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")),
-                            isMine = true,
-                            replyToId = replyingTo?.id,
-                            replyTo = replyingTo,
-                            attachments = listOf(tempAttachment),
-                            status = MessageStatus.SENDING,
-                            mediaGroupId = batchId
-                        )
-                        Pair(tempMsg, android.net.Uri.parse(localUriStr))
-                    }
-                    
-                    // Insert all optimistic messages at once
-                    messages = (messages + tempMsgsWithUris.map { it.first }).distinctBy { it.id }
-                    SendSound.play(context)
-
-                    // Optimistic update of local chat lists
-                    coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        try {
-                            val existingChat = chatDao.getChatById(chatId)
-                            if (existingChat != null) {
-                                val firstLocalUri = tempMsgsWithUris.firstOrNull()?.second?.toString()
-                                chatDao.insert(existingChat.copy(
-                                    message = firstText,
-                                    time = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")),
-                                    timestamp = System.currentTimeMillis(),
-                                    isMine = true,
-                                    isReadReceipt = false,
-                                    lastMediaType = msgType,
-                                    lastMediaUrl = firstLocalUri,
-                                    lastThumbnailUrl = if (type == AttachmentType.IMAGE) firstLocalUri else null
-                                ))
-                            }
-                            val existingCachedChat = cachedChatDao.getCachedChatById(chatId)
-                            if (existingCachedChat != null) {
-                                cachedChatDao.insertCachedChats(listOf(existingCachedChat.copy(
-                                    last_message = firstText,
-                                    time_str = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")),
-                                    timestamp = System.currentTimeMillis()
-                                )))
-                            }
-                            for (pair in tempMsgsWithUris) {
-                                cachedMessageDao.insertMerged(
-                                    com.example.cache.CachedMessage(
-                                        id = pair.first.id,
-                                        chat_id = chatId,
-                                        sender_id = myUserId ?: "",
-                                        content = pair.first.text,
-                                        created_at = java.time.Instant.now().toString(),
-                                        status = "SENDING",
-                                        message_type = msgType,
-                                        media_url = pair.second.toString(),
-                                        reply_to_id = replyingTo?.id,
-                                        media_aspect_ratio = pair.first.attachments.firstOrNull()?.aspectRatio,
-                                        media_group_id = batchId
-                                    )
-                                )
-                            }
-                        } catch(e: Exception) {}
-                    }
-                    // Upload in parallel
-                    for (pair in tempMsgsWithUris) {
-                        val tempMsg = pair.first
-                        val uri = pair.second
-                        com.example.AppState.inFlightMessageIds.add(tempMsg.id)
-                        launch(kotlinx.coroutines.Dispatchers.IO) {
-                            try {
-                                val calculatedRatio = tempMsg.attachments.firstOrNull()?.aspectRatio
-                                val fileName = java.util.UUID.randomUUID().toString() + "-" +System.currentTimeMillis()
-                                val path = "$chatId/$myUserId/$fileName"
-                                run {
-                                    val signedUrl = com.example.util.MediaUploader.prepareAndUpload(
-                                        context = context,
-                                        supabase = com.example.supabase,
-                                        bucketName = bucketName,
-                                        path = path,
-                                        uri = uri,
-                                        type = type,
-                                        chatId = chatId,
-                                        scope = uploadScope
-                                    )
-
-                                    // نولّد ونرفع نسخة صغيرة مضغوطة (للصور بس) — هذا اللي يخلي
-                                    // العرض داخل الدردشة سريع (كيما تيليجرام)، بدل تحميل الصورة الكاملة كل مرة
-                                    var thumbnailSignedUrl: String? = null
-                                    if (type == AttachmentType.IMAGE) {
-                                        try {
-                                            val thumbBytes = com.example.util.ThumbnailUtils.generateThumbnailBytes(context, uri)
-                                            if (thumbBytes != null) {
-                                                if (com.example.util.R2Uploader.isConfigured) {
-                                                    thumbnailSignedUrl = com.example.util.R2Uploader.uploadBytes(
-                                                        com.example.supabase, chatId, uploadScope, "thumb", "image/jpeg", thumbBytes
-                                                    )
-                                                } else {
-                                                    val thumbPath = "$chatId/$myUserId/thumb_$fileName"
-                                                    com.example.supabase.storage[bucketName].upload(thumbPath, thumbBytes)
-                                                    thumbnailSignedUrl = com.example.supabase.storage[bucketName].createSignedUrl(thumbPath, kotlin.time.Duration.parse("3650d"))
-                                                }
-                                            }
-                                        } catch (e: Exception) {
-                                            // إذا فشل توليد المصغرة لأي سبب، نكمل بالصورة الأصلية بلا ما نوقف الإرسال
-                                        }
-                                    }
-
-                                    val insertData = MessageInsert(
-                                        chat_id = chatId,
-                                        sender_id = myUserId ?: "",
-                                        content = tempMsg.text,
-                                        message_type = msgType,
-                                        media_url = signedUrl,
-                                        thumbnail_url = thumbnailSignedUrl,
-                                        reply_to_id = replyingTo?.id,
-                                        media_aspect_ratio = calculatedRatio,
-                                        media_group_id = batchId
-                                    )
-                                    val result = com.example.util.MessageSender.insert(com.example.supabase, insertData, tempMsg.id)
-                                    
-                                    val timeStr = formatTimeSafe(result.created_at)
-                                    // نخفي النسخة المؤقتة فورًا حتى لا يعيدها أي دمج قديم فيظهر المرفق مرتين
-                                    if (result.id != tempMsg.id) deletedMessageIds.add(tempMsg.id)
-                                    val docMeta = docMetaByUri?.get(uri)
-                                    val attachment = Attachment(messageId = result.id, type = type, url = signedUrl, thumbnailUrl = result.thumbnail_url, aspectRatio = calculatedRatio, fileName = docMeta?.first, fileSize = docMeta?.second)
-                                    try {
-                                        cachedMessageDao.insertMerged(
-                                            com.example.cache.CachedMessage(
-                                                id = result.id,
-                                                chat_id = result.chat_id,
-                                                sender_id = result.sender_id,
-                                                content = result.content,
-                                                created_at = result.created_at,
-                                                status = "SENT",
-                                                message_type = result.message_type,
-                                                media_url = result.media_url,
-                                                thumbnail_url = result.thumbnail_url,
-                                                reply_to_id = result.reply_to_id,
-                                                media_aspect_ratio = calculatedRatio,
-                                                media_group_id = result.media_group_id
-                                            )
-                                        )
-                                        if (result.id != tempMsg.id) cachedMessageDao.deleteMessageById(tempMsg.id)
-                                    } catch(e: Exception) {}
-                                    
-                                    val newMsg = MessageModel(
-                                        id = result.id,
-                                        text = result.content,
-                                        time = timeStr,
-                                        isMine = true,
-                                        replyToId = replyingTo?.id,
-                                        replyTo = replyingTo,
-                                        attachments = listOf(attachment),
-                                        status = MessageStatus.SENT,
-                                        createdAtExact = result.created_at,
-                                        mediaGroupId = result.media_group_id
-                                    )
-                                    
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        val alreadyExists = messages.any { it.id == result.id && it.id != tempMsg.id }
-                                        messages = if (alreadyExists) {
-                                            messages.filter { it.id != tempMsg.id }
-                                        } else {
-                                            messages.map {
-                                                if (it.id == tempMsg.id) newMsg else it
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch(e: Exception) {
-                                e.printStackTrace()
-                                val isNetworkError = com.example.util.NetworkUtils.isNetworkError(context, e)
-                                
-                                if (isNetworkError) {
-                                    val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.example.worker.PendingMessageWorker>()
-                                        .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
-                                        .build()
-                                    androidx.work.WorkManager.getInstance(context).enqueueUniqueWork("PendingMessageUpload", androidx.work.ExistingWorkPolicy.APPEND_OR_REPLACE, workRequest)
-                                    // مهم: لا نضع الحالة "فشل" هنا. الرسالة تبقى "قيد الإرسال" (SENDING)
-                                    // لأن عامل الإرسال المؤجّل يعيد فقط الرسائل بهذه الحالة، وسيرسلها
-                                    // تلقائيًا فور عودة الإنترنت.
-                                } else {
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        messages = messages.map {
-                                            if (it.id == tempMsg.id) it.copy(status = MessageStatus.FAILED) else it
-                                        }
-                                        android.widget.Toast.makeText(context, "تعذّر إرسال المرفق: ${(e.message ?: "").lineSequence().firstOrNull()?.take(80) ?: ""}", android.widget.Toast.LENGTH_LONG).show()
-                                    }
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                        try { cachedMessageDao.updateMessageStatus(tempMsg.id, "FAILED") } catch(ex: Exception) {}
-                                    }
-                                }
-                            } finally {
-                                com.example.AppState.inFlightMessageIds.remove(tempMsg.id)
-                            }
-                        }
-                    }
-                    replyingTo = null
-                  }
                 }
               )
+                val pendingVideo = pendingVideoUris
+                if (pendingVideo != null) {
+                    com.example.ui.VideoQualityDialog(
+                        onPick = { q ->
+                            com.example.util.VideoQualityPrefs.set(context, q)
+                            pendingVideoUris = null
+                            attachmentHandler(pendingVideo, AttachmentType.VIDEO)
+                        },
+                        onDismiss = { pendingVideoUris = null }
+                    )
+                }
               }
           }
           if (isBotChat && botStarted && showReplyKb && replyKeyboardRows != null) {

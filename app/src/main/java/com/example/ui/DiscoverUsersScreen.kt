@@ -342,8 +342,13 @@ fun DiscoverUsersBody(
                             modifier = Modifier.fillMaxWidth().padding(top = 90.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            com.example.ui.EmptyBoxAnimation(size = 120.dp)
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(CircleShape)
+                                    .background(com.example.ui.redesign.RdColors.chip(rdDark))
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
                             Text(rdX.rdNoResults, color = __textPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(

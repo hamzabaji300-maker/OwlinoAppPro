@@ -22,6 +22,24 @@ class MyApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // جودة الفيديو المختارة سابقًا
+        com.example.util.VideoQualityPrefs.load(this)
+        // استئناف أي مرفقات عالقة إن أُغلق التطبيق أثناء الإرسال (آمنة من التكرار بفضل المعرّف الفريد)
+        try {
+            androidx.work.WorkManager.getInstance(this).enqueueUniqueWork(
+                "PendingMessageUpload",
+                androidx.work.ExistingWorkPolicy.KEEP,
+                androidx.work.OneTimeWorkRequestBuilder<com.example.worker.PendingMessageWorker>()
+                    .setInitialDelay(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .setConstraints(
+                        androidx.work.Constraints.Builder()
+                            .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                            .build()
+                    )
+                    .build()
+            )
+        } catch (e: Exception) {
+        }
         try { com.example.ui.CrashCatcher.setup(this) } catch (e: Throwable) {}
         try { NotificationHelper.ensureOwlinoChannel(this) } catch (e: Throwable) {}
         try { com.example.ui.SendSound.preload(this) } catch (e: Throwable) {}

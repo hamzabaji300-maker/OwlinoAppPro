@@ -85,7 +85,8 @@ class PendingMessageWorker(
                                 type = attachType,
                                 upsert = true,
                                 chatId = msg.chat_id,
-                                scope = uploadScope
+                                scope = uploadScope,
+                                messageId = msg.id
                             )
                         } catch (e: UploadLimitException) {
                             messageDao.updateMessageStatus(msg.id, "FAILED")

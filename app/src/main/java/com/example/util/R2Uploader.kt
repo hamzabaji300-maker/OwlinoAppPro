@@ -30,8 +30,17 @@ object R2Uploader {
         scope: String,
         kind: String,
         contentType: String,
-        bytes: ByteArray
-    ): String = send(supabase, chatId, scope, kind, contentType, bytes.size.toLong()) { it.write(bytes) }
+        bytes: ByteArray,
+        onProgress: ((Float) -> Unit)? = null
+    ): String = send(supabase, chatId, scope, kind, contentType, bytes.size.toLong()) { out ->
+        var off = 0
+        while (off < bytes.size) {
+            val n = minOf(65536, bytes.size - off)
+            out.write(bytes, off, n)
+            off += n
+            onProgress?.invoke(off.toFloat() / bytes.size)
+        }
+    }
 
     /** رفع بالتدفق من الملف مباشرة (دون تحميله كله في الذاكرة). */
     suspend fun uploadStream(
@@ -42,11 +51,22 @@ object R2Uploader {
         kind: String,
         contentType: String,
         uri: Uri,
-        size: Long
+        size: Long,
+        onProgress: ((Float) -> Unit)? = null
     ): String = send(supabase, chatId, scope, kind, contentType, size) { out ->
         val input = context.contentResolver.openInputStream(uri)
             ?: throw LocalMediaException("تعذّر قراءة الملف")
-        input.use { it.copyTo(out) }
+        input.use { src ->
+            val buf = ByteArray(65536)
+            var sent = 0L
+            while (true) {
+                val n = src.read(buf)
+                if (n <= 0) break
+                out.write(buf, 0, n)
+                sent += n
+                if (size > 0) onProgress?.invoke(sent.toFloat() / size)
+            }
+        }
     }
 
     private suspend fun send(

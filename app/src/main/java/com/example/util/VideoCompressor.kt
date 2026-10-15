@@ -5,7 +5,8 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import androidx.media3.transformer.Effects
+import androidx.media3.common.Effect
+import androidx.media3.common.Effects
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.effect.Presentation
@@ -14,9 +15,13 @@ import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -25,17 +30,10 @@ import kotlin.coroutines.resumeWithException
 
 /**
  * ضغط الفيديو على هاتف المرسل قبل الرفع (فلا يكلّفك معالجة على الخادم).
- *
- * الإعدادات هنا هي الموازنة بين الجودة والتكلفة، وتُعدَّل من الثوابت أدناه فقط:
- *  - الدقة: 720 على الضلع الأقصر (720p للأفقي، و720x1280 للعمودي). واضحة على شاشة الهاتف.
- *  - معدل بتات الفيديو 2 ميغابت/ثانية (حوالي 15 ميغابايت للدقيقة).
+ * الدقة ومعدل البتات يحددهما اختيار المستخدم (عادي 720p / عالٍ 1080p) من VideoQualityPrefs.
  * إن كان الفيديو أصلًا أصغر من ذلك فلا يُعاد ضغطه.
  */
 object VideoCompressor {
-
-    const val TARGET_SHORT_SIDE = 720
-    const val TARGET_VIDEO_BITRATE = 2_000_000          // بت/ثانية
-    private const val SKIP_IF_BITRATE_BELOW = 2_600_000 // لا نعيد ضغط ما هو أصغر من هذا
 
     class Info(val width: Int, val height: Int, val bitrate: Int, val durationMs: Long)
 
@@ -60,69 +58,89 @@ object VideoCompressor {
     /** هل يستحق الفيديو إعادة الضغط؟ */
     fun needsCompression(info: Info?): Boolean {
         if (info == null) return true // لا نعرف: نجرّب الضغط
+        val q = VideoQualityPrefs.current
         val shortSide = minOf(info.width, info.height)
-        if (shortSide > TARGET_SHORT_SIDE) return true
-        return info.bitrate > SKIP_IF_BITRATE_BELOW
+        if (shortSide > q.shortSide) return true
+        return info.bitrate > (q.bitrate * 13 / 10) // أكثر من 130% من المعدل المستهدف
     }
 
     /**
      * يضغط الفيديو إلى ملف مؤقت ويرجعه. يرمي استثناء إن فشل الضغط (فيعتمد المستدعي الأصل).
-     * يجب استدعاؤه من أي سياق؛ يعمل داخليًا على الخيط الرئيسي كما تتطلب المكتبة.
+     * onProgress تُستدعى بنسبة من 0 إلى 1.
      */
-    suspend fun compress(context: Context, input: Uri, info: Info?): File {
+    suspend fun compress(context: Context, input: Uri, info: Info?, onProgress: ((Float) -> Unit)? = null): File {
+        val q = VideoQualityPrefs.current
         val out = File(context.cacheDir, "vid_${System.currentTimeMillis()}.mp4")
         val app = context.applicationContext
         try {
             withContext(Dispatchers.Main) {
-                suspendCancellableCoroutine<Unit> { cont ->
-                    val encoderFactory = DefaultEncoderFactory.Builder(app)
-                        .setRequestedVideoEncoderSettings(
-                            VideoEncoderSettings.Builder().setBitrate(TARGET_VIDEO_BITRATE).build()
-                        )
-                        .build()
-
-                    val transformer = Transformer.Builder(app)
-                        .setVideoMimeType(MimeTypes.VIDEO_H264)
-                        .setAudioMimeType(MimeTypes.AUDIO_AAC)
-                        .setEncoderFactory(encoderFactory)
-                        .addListener(object : Transformer.Listener {
-                            override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                                if (cont.isActive) cont.resume(Unit)
+                var transformerRef: Transformer? = null
+                coroutineScope {
+                    // نسأل المكتبة عن نسبة التقدم كل 300 ملّي ثانية
+                    val poller = launch {
+                        val holder = ProgressHolder()
+                        while (true) {
+                            delay(300)
+                            val t = transformerRef ?: continue
+                            if (t.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE) {
+                                onProgress?.invoke(holder.progress / 100f)
                             }
+                        }
+                    }
+                    try {
+                        suspendCancellableCoroutine<Unit> { cont ->
+                            val encoderFactory = DefaultEncoderFactory.Builder(app)
+                                .setRequestedVideoEncoderSettings(
+                                    VideoEncoderSettings.Builder().setBitrate(q.bitrate).build()
+                                )
+                                .build()
 
-                            override fun onError(
-                                composition: Composition,
-                                exportResult: ExportResult,
-                                exportException: ExportException
-                            ) {
-                                if (cont.isActive) cont.resumeWithException(exportException)
+                            val transformer = Transformer.Builder(app)
+                                .setVideoMimeType(MimeTypes.VIDEO_H264)
+                                .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                                .setEncoderFactory(encoderFactory)
+                                .addListener(object : Transformer.Listener {
+                                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                                        if (cont.isActive) cont.resume(Unit)
+                                    }
+
+                                    override fun onError(
+                                        composition: Composition,
+                                        exportResult: ExportResult,
+                                        exportException: ExportException
+                                    ) {
+                                        if (cont.isActive) cont.resumeWithException(exportException)
+                                    }
+                                })
+                                .build()
+                            transformerRef = transformer
+
+                            // نصغّر الضلع الأقصر إلى الدقة المطلوبة دون تكبير
+                            val effects = ArrayList<Effect>()
+                            if (info != null && minOf(info.width, info.height) > q.shortSide) {
+                                val w: Int
+                                val h: Int
+                                if (info.width < info.height) {
+                                    w = q.shortSide
+                                    h = (info.height.toLong() * q.shortSide / info.width).toInt() and 1.inv()
+                                } else {
+                                    h = q.shortSide
+                                    w = (info.width.toLong() * q.shortSide / info.height).toInt() and 1.inv()
+                                }
+                                effects.add(Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT))
                             }
-                        })
-                        .build()
+                            val edited = EditedMediaItem.Builder(MediaItem.fromUri(input))
+                                .setEffects(Effects(emptyList(), effects))
+                                .build()
 
-                    // نصغّر الضلع الأقصر إلى 720 دون تكبير: عمودي (العرض 720) أو أفقي (الارتفاع 720)
-                    val effects = ArrayList<androidx.media3.common.Effect>()
-                    if (info != null && minOf(info.width, info.height) > TARGET_SHORT_SIDE) {
-                        effects.add(
-                            if (info.width < info.height) Presentation.createForWidthAndHeight(
-                                TARGET_SHORT_SIDE,
-                                (info.height.toLong() * TARGET_SHORT_SIDE / info.width).toInt() and 1.inv(),
-                                Presentation.LAYOUT_SCALE_TO_FIT
-                            ) else Presentation.createForWidthAndHeight(
-                                (info.width.toLong() * TARGET_SHORT_SIDE / info.height).toInt() and 1.inv(),
-                                TARGET_SHORT_SIDE,
-                                Presentation.LAYOUT_SCALE_TO_FIT
-                            )
-                        )
+                            cont.invokeOnCancellation {
+                                Handler(Looper.getMainLooper()).post { try { transformer.cancel() } catch (e: Exception) {} }
+                            }
+                            transformer.start(edited, out.absolutePath)
+                        }
+                    } finally {
+                        poller.cancel()
                     }
-                    val edited = EditedMediaItem.Builder(MediaItem.fromUri(input))
-                        .setEffects(Effects(emptyList(), effects))
-                        .build()
-
-                    cont.invokeOnCancellation {
-                        Handler(Looper.getMainLooper()).post { try { transformer.cancel() } catch (e: Exception) {} }
-                    }
-                    transformer.start(edited, out.absolutePath)
                 }
             }
         } catch (e: Throwable) {

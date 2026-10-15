@@ -37,11 +37,16 @@ object MediaUploader {
         type: AttachmentType,
         upsert: Boolean = false,
         chatId: String? = null,
-        scope: String = "direct"
+        scope: String = "direct",
+        messageId: String? = null
     ): String = withContext(Dispatchers.IO) {
         // الطريق الجديد: Cloudflare R2 (إن كان الـ Worker مضبوطًا ونعرف المحادثة)
         if (chatId != null && R2Uploader.isConfigured) {
-            return@withContext uploadToR2(context, supabase, chatId, scope, uri, type)
+            try {
+                return@withContext uploadToR2(context, supabase, chatId, scope, uri, type, messageId)
+            } finally {
+                UploadProgress.clear(messageId)
+            }
         }
         val data = prepare(context, uri, type)
         val bucket = supabase.storage[bucketName]
@@ -64,24 +69,28 @@ object MediaUploader {
         chatId: String,
         scope: String,
         uri: Uri,
-        type: AttachmentType
+        type: AttachmentType,
+        messageId: String? = null
     ): String {
         val size = getFileSize(context, uri)
         UploadLimits.check(type, size)?.let { throw UploadLimitException(it) }
         try {
             if (type == AttachmentType.IMAGE) {
                 val bytes = compressImage(context, uri, size)
-                return R2Uploader.uploadBytes(supabase, chatId, scope, "image", sniffImageType(bytes), bytes)
+                return R2Uploader.uploadBytes(
+                    supabase, chatId, scope, "image", sniffImageType(bytes), bytes
+                ) { p -> UploadProgress.set(messageId, p) }
             }
             if (type == AttachmentType.VIDEO) {
                 // نضغط الفيديو على الهاتف أولًا (720p)، ثم نرفعه بالتدفق من الملف المضغوط
-                val prepared = prepareVideo(context, uri, size)
+                val prepared = prepareVideo(context, uri, size, messageId)
+                val base = if (prepared.compressed) 0.5f else 0f
                 try {
                     return R2Uploader.uploadStream(
                         context, supabase, chatId, scope, "video",
                         if (prepared.compressed) "video/mp4" else contentTypeOf(context, uri, type),
                         prepared.uri, prepared.size
-                    )
+                    ) { p -> UploadProgress.set(messageId, base + p * (1f - base)) }
                 } finally {
                     prepared.tempFile?.delete()
                 }
@@ -94,7 +103,9 @@ object MediaUploader {
             val contentType = contentTypeOf(context, uri, type)
             if (size > 0) {
                 // رفع بالتدفق: لا يُحمَّل الفيديو كله في الذاكرة
-                return R2Uploader.uploadStream(context, supabase, chatId, scope, kind, contentType, uri, size)
+                return R2Uploader.uploadStream(
+                    context, supabase, chatId, scope, kind, contentType, uri, size
+                ) { p -> UploadProgress.set(messageId, p) }
             }
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: throw LocalMediaException("تعذّر قراءة الملف")
@@ -114,14 +125,14 @@ object MediaUploader {
      * يضغط الفيديو إن كان يستحق ويرجع ما سيُرفع فعلًا.
      * إن فشل الضغط (ترميز غير مدعوم مثلًا) نرفع الأصل بشرط ألا يتجاوز 50 ميغابايت.
      */
-    private suspend fun prepareVideo(context: Context, uri: Uri, originalSize: Long): PreparedVideo {
+    private suspend fun prepareVideo(context: Context, uri: Uri, originalSize: Long, messageId: String? = null): PreparedVideo {
         val info = VideoCompressor.readInfo(context, uri)
         var temp: File? = null
         // المقاطع القصيرة (حتى 8 ميغابايت) تُرفع كما هي: أسرع ولا تحتاج ضغطًا
         val small = originalSize in 1..SMALL_VIDEO_BYTES
         if (!small && VideoCompressor.needsCompression(info)) {
             temp = try {
-                VideoCompressor.compress(context, uri, info)
+                VideoCompressor.compress(context, uri, info) { p -> UploadProgress.set(messageId, p * 0.5f) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {

@@ -4,6 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.ui.zIndex
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -103,6 +107,18 @@ fun DownloadableImage(
             (dl is MediaDlState.Failed && dl.reason == "expired"))
 
     Box(modifier = modifier) {
+        // أثناء تجهيز ورفع المرسل: نسبة التقدم فوق الصورة/الفيديو
+        val upMap by com.example.util.UploadProgress.state.collectAsState()
+        val upP = upMap[att.messageId]
+        if (isMe && upP != null) {
+            Box(
+                modifier = Modifier.matchParentSize().zIndex(2f).background(Color.Black.copy(alpha = 0.35f)),
+                contentAlignment = Alignment.Center
+            ) {
+                MediaProgressRing(progress = upP, modifier = Modifier.size(46.dp), color = Color.White)
+                Text("${(upP * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
+            }
+        }
         if (!expired && (localPath != null || isMe || isLocalUri || isDirectRemote)) {
             // Real picture
             val model: Any = if (localPath != null) {

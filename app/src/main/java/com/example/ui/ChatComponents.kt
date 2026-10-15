@@ -1416,6 +1416,9 @@ fun FileBubbleContent(
     val sizeStr = formatFileSize(att.fileSize)
     val subtitle = listOf(sizeStr, ext).filter { it.isNotBlank() }.joinToString("  ·  ")
     val isUploading = msg.status == MessageStatus.SENDING
+    // نسبة تقدّم الرفع (إن وُجدت)
+    val upMap by com.example.util.UploadProgress.state.collectAsState()
+    val upP = upMap[msg.id]
     val isFailed = msg.status == MessageStatus.FAILED
 
     val fileCtx = androidx.compose.ui.platform.LocalContext.current
@@ -1506,7 +1509,7 @@ fun FileBubbleContent(
                 // سطر واحد: الحجم/الحالة في اليسار، والوقت وعلامة الإرسال في اليمين (بدل سطر منفصل)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val statusText = when {
-                        isUploading -> "جاري الرفع..."
+                        isUploading -> if (upP != null && upP > 0f) "جاري الرفع ${(upP * 100).toInt()}%" else "جاري الرفع..."
                         isFailed -> "فشل الإرسال"
                         fileExpired -> com.example.util.MediaExpiry.LABEL
                         else -> subtitle
