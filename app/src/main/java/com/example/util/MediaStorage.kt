@@ -128,6 +128,8 @@ object MediaStorage {
 
     fun mimeFor(file: File, fallback: String? = null): String {
         val ext = file.extension.lowercase()
+        // امتداد bin لا يدل على النوع، فنعتمد النوع الذي نعرفه من الرسالة
+        if (ext == "bin" && !fallback.isNullOrBlank()) return fallback
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: fallback ?: "*/*"
     }
 
@@ -147,6 +149,47 @@ object MediaStorage {
     }
 
     fun openRemote(context: Context, url: String, mime: String) {
+        // ملفات R2 تحتاج جلسة المستخدم، والتطبيقات الخارجية لا تستطيع إرسالها: نحمّل أولًا ثم نفتح محليًا
+        if (MediaAuth.isWorkerUrl(url)) {
+            val app = context.applicationContext
+            Toast.makeText(app, "جارٍ فتح الملف...", Toast.LENGTH_SHORT).show()
+            Thread {
+                var failure: String? = null
+                var opened: File? = null
+                try {
+                    val kind = if (mime.startsWith("video")) Kind.VIDEO else Kind.DOCUMENT
+                    val dir = dirFor(app, kind)
+                    dir.mkdirs()
+                    val ext = if (mime.startsWith("video")) "mp4"
+                        else (MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "bin")
+                    val file = File(dir, "open_" + Integer.toHexString(url.substringBefore('?').hashCode()) + "." + ext)
+                    if (!file.exists() || file.length() == 0L) {
+                        val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+                            connectTimeout = 15000
+                            readTimeout = 60000
+                        }
+                        MediaAuth.apply(conn, url)
+                        try {
+                            val code = conn.responseCode
+                            if (code == 404 || code == 410) failure = "انتهت صلاحية الملف"
+                            else if (code !in 200..299) failure = "تعذّر فتح الملف"
+                            else conn.inputStream.use { i -> file.outputStream().use { o -> i.copyTo(o) } }
+                        } finally {
+                            conn.disconnect()
+                        }
+                    }
+                    if (failure == null) opened = file
+                } catch (e: Exception) {
+                    failure = "تعذّر فتح الملف"
+                }
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    val f = opened
+                    if (f != null) openFile(app, f.absolutePath, mime)
+                    else Toast.makeText(app, failure ?: "تعذّر فتح الملف", Toast.LENGTH_SHORT).show()
+                }
+            }.start()
+            return
+        }
         try {
             val intent = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(url), mime)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

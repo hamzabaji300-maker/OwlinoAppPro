@@ -147,9 +147,7 @@ data class MessageModel(
     val viewsLabel: String? = null,
     val forwardsLabel: String? = null,
     val totalInteractionsLabel: String? = null,
-    val channelReactions: List<ChannelReaction> = emptyList(),
-    // --- استفتاء (يُنشأ من زر + في القنوات والمجموعات) ---
-    val poll: Poll? = null
+    val channelReactions: List<ChannelReaction> = emptyList()
 )
 
 @androidx.compose.runtime.Stable
@@ -192,7 +190,8 @@ data class ChatModel(
 }
 
 /** نفس منطق ChatModel.effectiveVerifyType لكن على ChatEntity (المستعمل في ChatDetailScreen). */
-// (ChatEntity extension removed in lab project: no Room dependency)
+val com.example.data.ChatEntity.effectiveVerifyType: VerifyType
+    get() = if (id == OFFICIAL_CHANNEL_ID) VerifyType.RED else VerifyType.from(verifiedType, isVerified)
 
 fun formatRelativeTime(timestamp: String?): String {
     if (timestamp.isNullOrEmpty()) return "آخر ظهور غير معروف"
@@ -235,20 +234,3 @@ data class ProfileLink(
     val description: String = ""
 )
 
-
-
-data class PollOption(val text: String, val votes: Int = 0)
-
-data class Poll(
-    val question: String,
-    val options: List<PollOption>,
-    val multiple: Boolean = false,
-    val revoting: Boolean = true,
-    /** فهرس الإجابة الصحيحة إن كان اختبارًا */
-    val quizCorrect: Int? = null,
-    val restrictSubscribers: Boolean = false,
-    val restrictCountries: Boolean = false,
-    /** وقت الإغلاق التلقائي بالملّي ثانية (null = مفتوح) */
-    val endsAt: Long? = null,
-    val myVotes: Set<Int> = emptySet()
-)
