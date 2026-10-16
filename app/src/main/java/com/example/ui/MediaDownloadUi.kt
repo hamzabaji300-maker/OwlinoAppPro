@@ -4,13 +4,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.background
-import androidx.compose.ui.zIndex
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,7 +14,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -101,25 +93,9 @@ fun DownloadableImage(
     // الـ GIF الخارجية (Klipy) تُعرض مباشرة متحركة، دون زر تحميل
     val isDirectRemote = att.url.contains("klipy.co")
     val dl = states[att.messageId]
-    // انتهت صلاحية الملف على الخادم ولا توجد نسخة على الهاتف
-    val expired = localPath == null && !isLocalUri &&
-        (com.example.util.MediaExpiry.isExpired(att.url) ||
-            (dl is MediaDlState.Failed && dl.reason == "expired"))
 
     Box(modifier = modifier) {
-        // أثناء تجهيز ورفع المرسل: نسبة التقدم فوق الصورة/الفيديو
-        val upMap by com.example.util.UploadProgress.state.collectAsState()
-        val upP = upMap[att.messageId]
-        if (isMe && upP != null) {
-            Box(
-                modifier = Modifier.matchParentSize().zIndex(2f).background(Color.Black.copy(alpha = 0.35f)),
-                contentAlignment = Alignment.Center
-            ) {
-                MediaProgressRing(progress = upP, modifier = Modifier.size(46.dp), color = Color.White)
-                Text("${(upP * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-            }
-        }
-        if (!expired && (localPath != null || isMe || isLocalUri || isDirectRemote)) {
+        if (localPath != null || isMe || isLocalUri || isDirectRemote) {
             // Real picture
             val model: Any = if (localPath != null) {
                 File(localPath)
@@ -128,13 +104,13 @@ fun DownloadableImage(
             } else {
                 rememberMediaSource(context, att.messageId, att.thumbnailUrl ?: att.url, isThumbnail = att.thumbnailUrl != null)
             }
-            coil.compose.AsyncImage(
+            coil.compose.SubcomposeAsyncImage(
                 model = coil.request.ImageRequest.Builder(context)
                     .data(model)
                     .memoryCacheKey("media_" + att.messageId + if (localPath != null) "_l" else "_r")
                     .crossfade(false)
                     .build(),
-                placeholder = androidx.compose.ui.graphics.painter.ColorPainter(Color.Black.copy(alpha = 0.12f)),
+                loading = { Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f))) },
                 contentDescription = null,
                 contentScale = contentScale,
                 modifier = Modifier.fillMaxSize().clickable { onOpen() }
@@ -169,21 +145,7 @@ fun DownloadableImage(
             }
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.22f)))
 
-            if (expired) {
-                Column(
-                    modifier = Modifier.align(Alignment.Center).padding(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(Icons.Filled.Schedule, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(26.dp))
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        com.example.util.MediaExpiry.LABEL,
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontSize = 12.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                }
-            } else if (ready) {
+            if (ready) {
                 when (dl) {
                     is MediaDlState.Downloading -> {
                         Box(

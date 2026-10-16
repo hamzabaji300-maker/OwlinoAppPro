@@ -34,10 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.composables.icons.lucide.*
-import com.example.supabase
-import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.launch
 
 @Composable
@@ -51,29 +47,38 @@ fun UserProfileScreen(
     // true = البروفايل ينزل من الأعلى ويتوقف عند نصف الشاشة (يستعمل من شاشة المحادثة)
     fromTop: Boolean = false,
     // true فقط عند الفتح من شاشة البحث/الاكتشاف: بعد نجاح المتابعة يتحول الزر إلى "Message"
-    showMessageAfterFollow: Boolean = false
+    showMessageAfterFollow: Boolean = false,
+    // بيانات المختبر (بدل جلبها من Supabase)
+    initialName: String = "User",
+    initialUsername: String = "user",
+    initialBio: String? = null,
+    initialLocation: String = "Algeria",
+    initialFollowers: Long = 0L,
+    initialFollowing: Long = 0L,
+    initialVerified: Boolean = false,
+    initialVerifyType: VerifyType = VerifyType.NONE
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    val isOwnProfile = userId.isNotEmpty() && userId == supabase.auth.currentUserOrNull()?.id
+    val isOwnProfile = false
 
     // States
     var isFollowing by remember { mutableStateOf(false) }
-    var followersCount by remember { mutableStateOf(0L) }
-    var followingCount by remember { mutableStateOf(0L) }
+    var followersCount by remember { mutableStateOf(initialFollowers) }
+    var followingCount by remember { mutableStateOf(initialFollowing) }
     var isMenuOpen by remember { mutableStateOf(false) }
     var isFavorite by remember { mutableStateOf(false) }
     var isQrModalOpen by remember { mutableStateOf(false) }
     
     var isVisible by remember { mutableStateOf(false) }
-    var realName by remember { mutableStateOf("User") }
-    var username by remember { mutableStateOf("user") }
-    var bio by remember { mutableStateOf("Product Designer who focuses\non simplicity & usability.") }
-    var location by remember { mutableStateOf("Algeria") }
+    var realName by remember { mutableStateOf(initialName) }
+    var username by remember { mutableStateOf(initialUsername) }
+    var bio by remember { mutableStateOf(initialBio ?: "") }
+    var location by remember { mutableStateOf(initialLocation) }
     var avatarUrl by remember { mutableStateOf<String?>(null) }
-    var isVerified by remember { mutableStateOf(false) }
-    var verifyType by remember { mutableStateOf(VerifyType.NONE) }
+    var isVerified by remember { mutableStateOf(initialVerified) }
+    var verifyType by remember { mutableStateOf(initialVerifyType) }
     var isLoading by remember { mutableStateOf(true) }
     var existingChatId by remember { mutableStateOf<String?>(null) }
 
@@ -118,171 +123,13 @@ fun UserProfileScreen(
         }
     }
 
-    // Fetch logic
-    LaunchedEffect(userId) {
-        isVisible = true
-        if (userId.isNotBlank()) {
-            try {
-                val profile = supabase.postgrest["profiles"]
-                    .select { filter { eq("id", userId) } }
-                    .decodeSingleOrNull<Profile>()
-                if (profile != null) {
-                    realName = profile.displayName
-                    username = profile.displayUsername
-                    if (!profile.bio.isNullOrBlank()) {
-                        // Clean up multiple empty lines into a single newline
-                        bio = profile.bio!!.replace(Regex("\\n{2,}"), "\n").trim()
-                    }
-                    avatarUrl = profile.avatarUrl
-                    verifyType = profile.verifyType
-                    isVerified = verifyType.isVerified
-                }
-                
-                followersCount = supabase.postgrest["followers"].select(Columns.list("id")) {
-                    filter { eq("following_id", userId) }
-                    count(io.github.jan.supabase.postgrest.query.Count.EXACT)
-                }.countOrNull() ?: 0L
-                
-                followingCount = supabase.postgrest["followers"].select(Columns.list("id")) {
-                    filter { eq("follower_id", userId) }
-                    count(io.github.jan.supabase.postgrest.query.Count.EXACT)
-                }.countOrNull() ?: 0L
-
-                val myId = supabase.auth.currentUserOrNull()?.id
-                if (myId != null) {
-                    val followCheck = supabase.postgrest["followers"].select(Columns.list("id")) {
-                        filter {
-                            eq("follower_id", myId)
-                            eq("following_id", userId)
-                        }
-                        count(io.github.jan.supabase.postgrest.query.Count.EXACT)
-                    }.countOrNull() ?: 0L
-                    isFollowing = followCheck > 0
-
-                    // نجيب الشات الموجود مسبقاً (إذا كاين) وقت تحميل البروفايل،
-                    // باش زر Message يفتح المحادثة مباشرة بلا انتظار وقتاش نضغط عليه
-                    if (myId != userId) {
-                        val myChats = supabase.postgrest["chat_members"].select(Columns.list("chat_id")) {
-                            filter { eq("user_id", myId) }
-                        }.decodeList<ChatMemberRow>().map { it.chat_id }
-
-                        if (myChats.isNotEmpty()) {
-                            val otherChats = supabase.postgrest["chat_members"].select(Columns.list("chat_id")) {
-                                filter {
-                                    eq("user_id", userId)
-                                    isIn("chat_id", myChats)
-                                }
-                            }.decodeList<ChatMemberRow>().map { it.chat_id }
-
-                            if (otherChats.isNotEmpty()) {
-                                val directChats = supabase.postgrest["chats"].select(Columns.list("id")) {
-                                    filter {
-                                        isIn("id", otherChats)
-                                        eq("type", "direct")
-                                    }
-                                }.decodeList<ChatRow>()
-
-                                if (directChats.isNotEmpty()) {
-                                    existingChatId = directChats.first().id
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        isLoading = false
-    }
-
+    // نسخة المختبر: بيانات محلية بدل Supabase
+    LaunchedEffect(userId) { isLoading = false; isVisible = true }
     var isMessageLoading by remember { mutableStateOf(false) }
-
-    val handleMessageClick = {
-        if (!isMessageLoading) {
-            if (existingChatId != null) {
-                // محادثة موجودة مسبقاً وتحملت وقت فتح البروفايل -> فتح فوري بلا انتظار
-                onMessageClick(existingChatId!!, realName)
-            } else {
-            isMessageLoading = true
-            coroutineScope.launch {
-                try {
-                    val myId = supabase.auth.currentUserOrNull()?.id
-                    if (myId != null && myId != userId) {
-                        val myChats = supabase.postgrest["chat_members"].select(Columns.list("chat_id")) {
-                            filter { eq("user_id", myId) }
-                        }.decodeList<ChatMemberRow>().map { it.chat_id }
-
-                        var foundChatId: String? = null
-                        if (myChats.isNotEmpty()) {
-                            val otherChats = supabase.postgrest["chat_members"].select(Columns.list("chat_id")) {
-                                filter { 
-                                    eq("user_id", userId)
-                                    isIn("chat_id", myChats)
-                                }
-                            }.decodeList<ChatMemberRow>().map { it.chat_id }
-                            
-                            if (otherChats.isNotEmpty()) {
-                                val directChats = supabase.postgrest["chats"].select(Columns.list("id")) {
-                                    filter {
-                                        isIn("id", otherChats)
-                                        eq("type", "direct")
-                                    }
-                                }.decodeList<ChatRow>()
-                                
-                                if (directChats.isNotEmpty()) {
-                                    foundChatId = directChats.first().id
-                                }
-                            }
-                        }
-
-                        if (foundChatId != null) {
-                            onMessageClick(foundChatId, realName)
-                        } else {
-                            val newChat = supabase.postgrest["chats"].insert(ChatInsert(type = "direct", created_by = myId)) {
-                                select()
-                            }.decodeSingle<ChatRow>()
-                            
-                            supabase.postgrest["chat_members"].insert(listOf(
-                                ChatMemberRow(chat_id = newChat.id, user_id = myId, role = "admin"),
-                                ChatMemberRow(chat_id = newChat.id, user_id = userId, role = "member")
-                            ))
-                            onMessageClick(newChat.id, realName)
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    isMessageLoading = false
-                }
-            }
-            }
-        }
-    }
-
+    val handleMessageClick = { onMessageClick(existingChatId ?: "", realName) }
     val handleFollowToggle = {
-        val previousState = isFollowing
         isFollowing = !isFollowing
-        followersCount = if (isFollowing) followersCount + 1 else followersCount - 1
-
-        coroutineScope.launch {
-            try {
-                val myId = supabase.auth.currentUserOrNull()?.id ?: return@launch
-                if (isFollowing) {
-                    supabase.postgrest["followers"].insert(FollowerInsertRow(myId, userId))
-                } else {
-                    supabase.postgrest["followers"].delete {
-                        filter {
-                            eq("follower_id", myId)
-                            eq("following_id", userId)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                isFollowing = previousState
-                followersCount = if (isFollowing) followersCount + 1 else followersCount - 1
-            }
-        }
+        followersCount = if (isFollowing) followersCount + 1 else (followersCount - 1).coerceAtLeast(0)
     }
     
     val dismiss = {

@@ -59,12 +59,7 @@ object AudioPlayerManager {
                     .build()
             )
             val uri = if (source.startsWith("/")) Uri.fromFile(java.io.File(source)) else Uri.parse(source)
-            // الصوت على R2 يلزمه جلسة المستخدم (الملف المحلي لا يلزمه)
-            if (source.startsWith("/")) {
-                mp.setDataSource(app, uri)
-            } else {
-                mp.setDataSource(app, uri, com.example.util.MediaAuth.headersFor(source))
-            }
+            mp.setDataSource(app, uri)
             mp.setOnPreparedListener { p ->
                 if (player !== p) return@setOnPreparedListener
                 try {
