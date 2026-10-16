@@ -186,7 +186,12 @@ fun DownloadableImage(
             } else {
                 Box(modifier = Modifier.fillMaxSize().background(Color(0xFF2B2F36)))
             }
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.22f)))
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.22f))
+                    .then(if (isVideo && !expired) Modifier.clickable { onOpen() } else Modifier)
+            )
 
             if (expired) {
                 Column(

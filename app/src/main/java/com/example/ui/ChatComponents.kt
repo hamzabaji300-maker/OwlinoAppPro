@@ -1597,6 +1597,16 @@ fun VideoBubbleContent(
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val files by MediaIndex.files.collectAsState()
+    var showVideoPlayer by remember { mutableStateOf(false) }
+    if (showVideoPlayer) {
+        // ملف محلي إن وُجد، وإلا الرابط (بث مباشر مع التقديم والتأخير)
+        VideoPlayerDialog(
+            source = files[att.messageId] ?: att.url,
+            title = if (isMe) "أنت" else msg.senderName.ifBlank { "فيديو" },
+            subtitle = msg.time,
+            onDismiss = { showVideoPlayer = false }
+        )
+    }
     val ratio = (att.aspectRatio ?: 1.78f).coerceIn(0.5f, 2.2f)
     var w = screenWidth * 0.66f
     var h = w / ratio
@@ -1610,14 +1620,7 @@ fun VideoBubbleContent(
             isMe = isMe,
             isVideo = true,
             modifier = Modifier.size(width = w, height = h),
-            onOpen = {
-                val local = files[att.messageId]
-                if (local != null) {
-                    com.example.util.MediaStorage.openFile(ctx, local, att.mimeType ?: "video/*")
-                } else if (!att.url.startsWith("content://") && !att.url.startsWith("file://")) {
-                    com.example.util.MediaStorage.openRemote(ctx, att.url, att.mimeType ?: "video/*")
-                }
-            }
+            onOpen = { showVideoPlayer = true }
         )
         Row(
             modifier = Modifier
