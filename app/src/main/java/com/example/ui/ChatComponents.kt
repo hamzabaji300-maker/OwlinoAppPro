@@ -17,9 +17,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.text.appendInlineContent
@@ -141,12 +138,24 @@ fun MessageBubble(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(androidx.compose.animation.core.tween(200))
-            .padding(horizontal = 8.dp, vertical = if (isLastInCluster) 2.dp else 0.5.dp)
-            .padding(bottom = if (msg.reactions.isNotEmpty()) 12.dp else 0.dp),
+            .padding(horizontal = 8.dp, vertical = if (isLastInCluster) 2.dp else 0.5.dp),
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
+        if (isMe && msg.reactions.isNotEmpty()) {
+            Row(
+                modifier = Modifier.offset(y = (-8).dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                msg.reactions.forEach { emoji ->
+                    val reactionUrl = NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji))
+                    if (reactionUrl != null) {
+                        LottieEmojiReaction(url = reactionUrl, size = 34.dp, tapToPlay = true, playKey = "react|$emoji")
+                    }
+                }
+            }
+            Spacer(Modifier.width(3.dp))
+        }
         val __senderSlot = showSender && !isMe
         val __nameAbove = __senderSlot && isFirstInCluster && !isEmojiOnlyMessage && msg.senderName.isNotBlank()
         if (__senderSlot) {
@@ -171,162 +180,236 @@ fun MessageBubble(
             }
             Spacer(Modifier.width(8.dp))
         }
-        Box {
-            Column(
-                modifier = Modifier
-                    .widthIn(min = 60.dp, max = (if (LocalChannelFullWidth.current) screenWidth - 16.dp else screenWidth * 0.85f) - (if (__senderSlot) 38.dp else 0.dp))
-                    .let { m ->
-                        if (isEmojiOnlyMessage || !isLastInCluster) m else m.drawBehind {
-                            val d = 1.dp.toPx()
-                            val w = size.width
-                            val h = size.height
-                            val tail = androidx.compose.ui.graphics.Path()
-                            if (__tailOnRight) {
-                                tail.moveTo(w - 6f * d, h - 12f * d)
-                                tail.lineTo(w, h - 12f * d)
-                                tail.quadraticBezierTo(w + 0.5f * d, h - 1f * d, w + 6f * d, h)
-                                tail.lineTo(w - 6f * d, h)
-                            } else {
-                                tail.moveTo(6f * d, h - 12f * d)
-                                tail.lineTo(0f, h - 12f * d)
-                                tail.quadraticBezierTo(-0.5f * d, h - 1f * d, -6f * d, h)
-                                tail.lineTo(6f * d, h)
-                            }
-                            tail.close()
-                            drawPath(tail, bubbleColor)
+        Column(
+            modifier = Modifier
+                .widthIn(min = 60.dp, max = (if (msg.reactions.isNotEmpty()) screenWidth * 0.74f else screenWidth * 0.85f) - (if (__senderSlot) 38.dp else 0.dp))
+                .let { m ->
+                    if (isEmojiOnlyMessage || !isLastInCluster) m else m.drawBehind {
+                        val d = 1.dp.toPx()
+                        val w = size.width
+                        val h = size.height
+                        val tail = androidx.compose.ui.graphics.Path()
+                        if (__tailOnRight) {
+                            tail.moveTo(w - 6f * d, h - 12f * d)
+                            tail.lineTo(w, h - 12f * d)
+                            tail.quadraticBezierTo(w + 0.5f * d, h - 1f * d, w + 6f * d, h)
+                            tail.lineTo(w - 6f * d, h)
+                        } else {
+                            tail.moveTo(6f * d, h - 12f * d)
+                            tail.lineTo(0f, h - 12f * d)
+                            tail.quadraticBezierTo(-0.5f * d, h - 1f * d, -6f * d, h)
+                            tail.lineTo(6f * d, h)
                         }
+                        tail.close()
+                        drawPath(tail, bubbleColor)
                     }
-                    .onGloballyPositioned { DustRegistry.bubbleBounds[msg.id] = it.boundsInRoot() }
-                    .let { if (isEmojiOnlyMessage) it else it.clip(shape).background(bubbleColor) }
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onDoubleTap = { onDoubleTap(msg) },
-                            onPress = { offset ->
-                                touchOffset = offset
-                                val releaseTimeout = kotlinx.coroutines.withTimeoutOrNull(250) {
+                }
+                .let { if (isEmojiOnlyMessage) it else it.clip(shape).background(bubbleColor) }
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onDoubleTap = { onDoubleTap(msg) },
+                        onPress = { offset ->
+                            touchOffset = offset
+                            val releaseTimeout = kotlinx.coroutines.withTimeoutOrNull(250) {
+                                tryAwaitRelease()
+                            }
+                            if (releaseTimeout == null) {
+                                // 250ms passed, not released
+                                onLightLongPress(msg, offset)
+                                val releaseTimeout2 = kotlinx.coroutines.withTimeoutOrNull(250) {
                                     tryAwaitRelease()
                                 }
-                                if (releaseTimeout == null) {
-                                    // 250ms passed, not released
-                                    onLightLongPress(msg, offset)
-                                    val releaseTimeout2 = kotlinx.coroutines.withTimeoutOrNull(250) {
-                                        tryAwaitRelease()
-                                    }
-                                    if (releaseTimeout2 == null) {
-                                        // 500ms total passed
-                                        onHeavyLongPress(msg, offset)
-                                        tryAwaitRelease() // wait for actual release
-                                    }
+                                if (releaseTimeout2 == null) {
+                                    // 500ms total passed
+                                    onHeavyLongPress(msg, offset)
+                                    tryAwaitRelease() // wait for actual release
                                 }
                             }
-                        )
-                    }
-            ) {
-                if (__nameAbove) {
-                    val __nameColors = listOf(Color(0xFFE17076), Color(0xFFEDA86C), Color(0xFFA695E7), Color(0xFF7BC862), Color(0xFF6EC9CB), Color(0xFF65AADD), Color(0xFFEE7AAE))
-                    val __nameColor = __nameColors[(msg.senderId.hashCode() and 0x7fffffff) % __nameColors.size]
-                    Text(
-                        text = msg.senderName,
-                        color = __nameColor,
-                        fontSize = 13.sp,
-                        lineHeight = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 0.dp)
+                        }
                     )
                 }
-                if (msg.replyTo != null) {
-                    Row(
+        ) {
+            if (__nameAbove) {
+                val __nameColors = listOf(Color(0xFFE17076), Color(0xFFEDA86C), Color(0xFFA695E7), Color(0xFF7BC862), Color(0xFF6EC9CB), Color(0xFF65AADD), Color(0xFFEE7AAE))
+                val __nameColor = __nameColors[(msg.senderId.hashCode() and 0x7fffffff) % __nameColors.size]
+                Text(
+                    text = msg.senderName,
+                    color = __nameColor,
+                    fontSize = 13.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 0.dp)
+                )
+            }
+            if (msg.replyTo != null) {
+                Row(
+                    modifier = Modifier
+                        .padding(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 4.dp)
+                        .height(IntrinsicSize.Min)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isMe) Color(0xFFFDE9B4) else Color(0xFFF2F2F2))
+                        .clickable { onReplyClick(msg.replyTo) }
+                ) {
+                    Box(
                         modifier = Modifier
-                            .padding(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 4.dp)
-                            .height(IntrinsicSize.Min)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (isMe) Color(0xFFFDE9B4) else Color(0xFFF2F2F2))
-                            .clickable { onReplyClick(msg.replyTo) }
+                            .width(4.dp)
+                            .fillMaxHeight()
+                            .background(if (isMe) Color(0xFFC78B22) else Color(0xFF3390EC))
+                    )
+                    Column(
+                        modifier = Modifier
+                            .padding(start = 6.dp, top = 2.dp, end = 6.dp, bottom = 2.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .width(4.dp)
-                                .fillMaxHeight()
-                                .background(if (isMe) Color(0xFFC78B22) else Color(0xFF3390EC))
+                        Text(
+                            text = if (msg.replyTo.isMine) "You" else msg.replyTo.senderName.takeIf { it.isNotBlank() } ?: "User",
+                            color = if (isMe) Color(0xFFC78B22) else Color(0xFF3390EC),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Column(
-                            modifier = Modifier
-                                .padding(start = 6.dp, top = 2.dp, end = 6.dp, bottom = 2.dp)
-                        ) {
-                            Text(
-                                text = if (msg.replyTo.isMine) "You" else msg.replyTo.senderName.takeIf { it.isNotBlank() } ?: "User",
-                                color = if (isMe) Color(0xFFC78B22) else Color(0xFF3390EC),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = msg.replyTo.text,
-                                color = Color.Black,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = androidx.compose.ui.text.TextStyle(textDirection = androidx.compose.ui.text.style.TextDirection.Content)
-                            )
-                        }
+                        Text(
+                            text = msg.replyTo.text,
+                            color = Color.Black,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = androidx.compose.ui.text.TextStyle(textDirection = androidx.compose.ui.text.style.TextDirection.Content)
+                        )
                     }
                 }
+            }
 
-                val imageAttachments = emojiOnlyImageAttachments
-                val audioAtt = emojiOnlyAudioAtt
-                val cleanText = emojiOnlyCleanText
+            val imageAttachments = emojiOnlyImageAttachments
+            val audioAtt = emojiOnlyAudioAtt
+            val cleanText = emojiOnlyCleanText
 
-                if (msg.poll != null) {
-                    PollBubbleContent(msg = msg, isMe = isMe, textColor = textColor, accent = __themeConfig.accent)
-                } else if (isEmojiOnlyMessage) {
-                    val units = emojiOnlySequence!!
-                    Column(modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
-                        // يتحرك مرة واحدة عند الإرسال فقط، وبعدها ثابت. الضغط عليه يحرّكه لثوانٍ ثم يتوقف
-                        val autoPlayEmoji = remember(msg.timestamp, msg.text) {
-                            EmojiPlayRegistry.shouldAutoPlay(msg.timestamp, msg.text)
+            if (isEmojiOnlyMessage) {
+                val units = emojiOnlySequence!!
+                Column(modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
+                    // يتحرك مرة واحدة عند الإرسال فقط، وبعدها ثابت. الضغط عليه يحرّكه لثوانٍ ثم يتوقف
+                    val autoPlayEmoji = remember(msg.timestamp, msg.text) {
+                        EmojiPlayRegistry.shouldAutoPlay(msg.timestamp, msg.text)
+                    }
+                    if (units.size == 1) {
+                        // إيموجي وحد -> كبير (100dp)
+                        val path = NotoEmojiMap.remoteUrlFor(units[0])
+                        if (path != null) {
+                            LottieEmojiReaction(url = path, size = 100.dp, tapToPlay = true, autoPlayOnce = autoPlayEmoji)
                         }
-                        if (units.size == 1) {
-                            // إيموجي وحد -> كبير (100dp)
-                            val path = NotoEmojiMap.remoteUrlFor(units[0])
-                            if (path != null) {
-                                LottieEmojiReaction(url = path, size = 100.dp, tapToPlay = true, autoPlayOnce = autoPlayEmoji)
-                            }
-                        } else {
-                            // حتى 5 إيموجيات -> متحركة. أكثر من 5 -> ثابتة (من نفس الرابط) بلا فقاعة
-                            val animated = units.size <= 5
-                            val perRow = if (units.size <= 12) 6 else 8
-                            val emojiSize = if (units.size <= 12) 40.dp else 32.dp
-                            units.chunked(perRow).forEach { rowUnits ->
-                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    rowUnits.forEach { e ->
-                                        val path = NotoEmojiMap.remoteUrlFor(e)
-                                        if (path != null) {
-                                            LottieEmojiReaction(
-                                                url = path,
-                                                size = emojiSize,
-                                                animate = false,
-                                                tapToPlay = animated,
-                                                autoPlayOnce = animated && autoPlayEmoji
-                                            )
-                                        }
+                    } else {
+                        // حتى 5 إيموجيات -> متحركة. أكثر من 5 -> ثابتة (من نفس الرابط) بلا فقاعة
+                        val animated = units.size <= 5
+                        val perRow = if (units.size <= 12) 6 else 8
+                        val emojiSize = if (units.size <= 12) 40.dp else 32.dp
+                        units.chunked(perRow).forEach { rowUnits ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                rowUnits.forEach { e ->
+                                    val path = NotoEmojiMap.remoteUrlFor(e)
+                                    if (path != null) {
+                                        LottieEmojiReaction(
+                                            url = path,
+                                            size = emojiSize,
+                                            animate = false,
+                                            tapToPlay = animated,
+                                            autoPlayOnce = animated && autoPlayEmoji
+                                        )
                                     }
                                 }
                             }
                         }
-                        // الوقت + علامة القراءة داخل كارد رقيق وشفاف تحت الإيموجي (زي تيليجرام)
+                    }
+                    // الوقت + علامة القراءة داخل كارد رقيق وشفاف تحت الإيموجي (زي تيليجرام)
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.End)
+                            .padding(top = 2.dp, end = 2.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.Black.copy(alpha = 0.18f))
+                            .padding(start = 5.dp, end = 4.dp, top = 0.dp, bottom = 0.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(msg.time, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Normal, color = Color.White)
+                        MessageIndicators(
+                            isMe = isMe,
+                            status = msg.status,
+                            isRead = false,
+                            isSaved = msg.isSaved,
+                            isPinned = msg.isPinned,
+                            isImageOverlay = true,
+                            compact = true
+                        )
+                    }
+                }
+            } else if (imageAttachments.isNotEmpty()) {
+                Box(modifier = Modifier.padding(2.dp).clip(RoundedCornerShape(14.dp))) {
+                    val count = imageAttachments.size
+                    val spacing = 2.dp
+                    // مقاسات مصغّرة زي تيليجرام: عرض أقصى 66% من الشاشة وارتفاع أقصى 40% منها
+                    val collageW = screenWidth * 0.66f
+                    
+                    if (count == 1) {
+                        val att = imageAttachments.first()
+                        val singleRatio = (att.aspectRatio ?: 1f).coerceIn(0.4f, 2.5f)
+                        val singleMaxH = screenHeight * 0.40f
+                        var singleW = collageW
+                        var singleH = singleW / singleRatio
+                        if (singleH > singleMaxH) {
+                            singleH = singleMaxH
+                            singleW = singleH * singleRatio
+                        }
+                        singleW = singleW.coerceAtLeast(120.dp)
+                        DownloadableImage(
+                            att = att,
+                            isMe = isMe,
+                            modifier = Modifier.size(width = singleW, height = singleH),
+                            onOpen = { onImageClick?.invoke(att.messageId) }
+                        )
+                    } else {
+                        // معرض بالنسبة الأصلية لكل صورة (بلا تربيع/قص كبير): كل صف يتقاسم نفس الارتفاع
+                        // والعرض يتوزع حسب نسبة كل صورة، فتظهر الصور كاملة تقريباً.
+                        val shown = imageAttachments.take(4)
+                        val rows: List<List<Attachment>> = when (shown.size) {
+                            2 -> listOf(shown)
+                            3 -> listOf(listOf(shown[0]), listOf(shown[1], shown[2]))
+                            else -> listOf(listOf(shown[0], shown[1]), listOf(shown[2], shown[3]))
+                        }
+                        Column(modifier = Modifier.width(collageW), verticalArrangement = Arrangement.spacedBy(spacing)) {
+                            rows.forEach { rowItems ->
+                                var sumRatio = 0f
+                                rowItems.forEach { sumRatio += (it.aspectRatio ?: 1f).coerceIn(0.5f, 2.0f) }
+                                val maxRowH = if (rowItems.size == 1) screenHeight * 0.30f else screenHeight * 0.22f
+                                val rowH = ((collageW - spacing * (rowItems.size - 1)) / sumRatio).coerceAtMost(maxRowH)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(spacing)) {
+                                    rowItems.forEach { att ->
+                                        val r = (att.aspectRatio ?: 1f).coerceIn(0.5f, 2.0f)
+                                        val isLastTile = count > 4 && att.messageId == shown.last().messageId
+                                        MediaTile(
+                                            att = att,
+                                            isMe = isMe,
+                                            modifier = Modifier.weight(r).height(rowH),
+                                            extraCount = if (isLastTile) count - 4 else 0,
+                                            onClick = { onImageClick?.invoke(att.messageId) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (cleanText.isBlank()) {
                         Row(
                             modifier = Modifier
-                                .align(Alignment.End)
-                                .padding(top = 2.dp, end = 2.dp)
+                                .align(Alignment.BottomEnd)
+                                .padding(4.dp)
                                 .clip(RoundedCornerShape(50))
-                                .background(Color.Black.copy(alpha = 0.18f))
+                                .background(Color.Black.copy(alpha = 0.28f))
                                 .padding(start = 5.dp, end = 4.dp, top = 0.dp, bottom = 0.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            MsgTimeText(msg.time, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Normal, color = Color.White)
+                            Text(msg.time, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Normal, color = Color.White)
                             MessageIndicators(
                                 isMe = isMe,
                                 status = msg.status,
@@ -338,342 +421,187 @@ fun MessageBubble(
                             )
                         }
                     }
-                } else if (imageAttachments.isNotEmpty()) {
-                    Column {
-                    Box(modifier = Modifier.padding(2.dp).clip(RoundedCornerShape(14.dp))) {
-                        val count = imageAttachments.size
-                        val spacing = 2.dp
-                        // مقاسات مصغّرة زي تيليجرام: عرض أقصى 66% من الشاشة وارتفاع أقصى 40% منها
-                        // في القناة تمتد الصورة بعرض الفقاعة كاملًا (هامش متساوٍ)، وفي غيرها 66% من الشاشة
-                        val channelFull = LocalChannelFullWidth.current
-                        val collageW = if (channelFull) screenWidth - 20.dp else screenWidth * 0.66f
-                        
-                        if (count == 1) {
-                            val att = imageAttachments.first()
-                            val singleRatio = (att.aspectRatio ?: 1f).coerceIn(0.4f, 2.5f)
-                            val singleMaxH = screenHeight * 0.40f
-                            var singleW = collageW
-                            var singleH = singleW / singleRatio
-                            if (singleH > singleMaxH) {
-                                singleH = singleMaxH
-                                singleW = singleH * singleRatio
-                            }
-                            singleW = singleW.coerceAtLeast(120.dp)
-                            if (channelFull) {
-                                singleW = collageW
-                                singleH = (collageW / singleRatio).coerceAtMost(screenHeight * 0.5f)
-                            }
-                            DownloadableImage(
-                                att = att,
-                                isMe = isMe,
-                                modifier = Modifier.size(width = singleW, height = singleH),
-                                onOpen = { onImageClick?.invoke(att.messageId) }
-                            )
-                        } else {
-                            // معرض بالنسبة الأصلية لكل صورة (بلا تربيع/قص كبير): كل صف يتقاسم نفس الارتفاع
-                            // والعرض يتوزع حسب نسبة كل صورة، فتظهر الصور كاملة تقريباً.
-                            val shown = imageAttachments.take(4)
-                            val rows: List<List<Attachment>> = when (shown.size) {
-                                2 -> listOf(shown)
-                                3 -> listOf(listOf(shown[0]), listOf(shown[1], shown[2]))
-                                else -> listOf(listOf(shown[0], shown[1]), listOf(shown[2], shown[3]))
-                            }
-                            Column(modifier = Modifier.width(collageW), verticalArrangement = Arrangement.spacedBy(spacing)) {
-                                rows.forEach { rowItems ->
-                                    var sumRatio = 0f
-                                    rowItems.forEach { sumRatio += (it.aspectRatio ?: 1f).coerceIn(0.5f, 2.0f) }
-                                    val maxRowH = if (rowItems.size == 1) screenHeight * 0.30f else screenHeight * 0.22f
-                                    val rowH = ((collageW - spacing * (rowItems.size - 1)) / sumRatio).coerceAtMost(maxRowH)
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(spacing)) {
-                                        rowItems.forEach { att ->
-                                            val r = (att.aspectRatio ?: 1f).coerceIn(0.5f, 2.0f)
-                                            val isLastTile = count > 4 && att.messageId == shown.last().messageId
-                                            MediaTile(
-                                                att = att,
-                                                isMe = isMe,
-                                                modifier = Modifier.weight(r).height(rowH),
-                                                extraCount = if (isLastTile) count - 4 else 0,
-                                                onClick = { onImageClick?.invoke(att.messageId) }
-                                            )
-                                        }
-                                    }
+                }
+            } else if (audioAtt != null) {
+                val audioCtx = androidx.compose.ui.platform.LocalContext.current
+                val audioFiles by MediaIndex.files.collectAsState()
+                val audioState by AudioPlayerManager.state.collectAsState()
+                val isThis = audioState.messageId == audioAtt.messageId
+                val playing = isThis && audioState.isPlaying
+                val preparing = isThis && audioState.isPreparing
+                LaunchedEffect(playing) {
+                    while (playing) {
+                        AudioPlayerManager.refreshPosition()
+                        kotlinx.coroutines.delay(120)
+                    }
+                }
+                val totalMs = if (isThis && audioState.durationMs > 0) audioState.durationMs.toLong() else (audioAtt.durationMs ?: 0L)
+                val posMs = if (isThis) audioState.positionMs.toLong() else 0L
+                val progress = if (totalMs > 0) (posMs.toFloat() / totalMs).coerceIn(0f, 1f) else 0f
+                fun fmt(ms: Long): String { val s = (ms / 1000).toInt(); return "${s / 60}:${(s % 60).toString().padStart(2, '0')}" }
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).width(200.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(if (isMe) Color.White else Color(0xFF007AFF))
+                            .clickable {
+                                val localAudio = audioFiles[audioAtt.messageId]
+                                if (localAudio == null && com.example.util.MediaExpiry.isExpired(audioAtt.url)) {
+                                    android.widget.Toast.makeText(audioCtx, com.example.util.MediaExpiry.LABEL, android.widget.Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val src = localAudio ?: audioAtt.url
+                                    AudioPlayerManager.toggle(audioCtx, audioAtt.messageId, src)
                                 }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (preparing) {
+                            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = if (isMe) Color(0xFF4FA953) else Color.White)
+                        } else {
+                            Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = if (isMe) Color(0xFF4FA953) else Color.White, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(modifier = Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            val h = listOf(2, 4, 3, 5, 8, 4, 2, 5, 7, 4, 3, 2, 4, 6)
+                            h.forEachIndexed { i, v ->
+                                val active = (i + 1).toFloat() / h.size <= progress
+                                val base = if (isMe) Color.White else Color(0xFF007AFF)
+                                Box(modifier = Modifier.weight(1f).height((v*2).dp).clip(CircleShape).background(if (active) base else base.copy(if (isMe) 0.6f else 0.4f)))
                             }
                         }
-                        
-                        if (cleanText.isBlank()) {
-                            Row(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(4.dp)
-                                    .clip(RoundedCornerShape(50))
-                                    .background(Color.Black.copy(alpha = 0.28f))
-                                    .padding(start = 5.dp, end = 4.dp, top = 0.dp, bottom = 0.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                MsgTimeText(msg.time, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Normal, color = Color.White)
+                        Row(modifier = Modifier.fillMaxWidth().padding(top=2.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (isThis && (playing || posMs > 0)) fmt(posMs) else fmt(totalMs), fontSize = 11.sp, color = timeColor)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(msg.time, fontSize = 10.sp, color = timeColor)
                                 MessageIndicators(
                                     isMe = isMe,
                                     status = msg.status,
                                     isRead = false,
                                     isSaved = msg.isSaved,
                                     isPinned = msg.isPinned,
-                                    isImageOverlay = true,
-                                    compact = true
+                                    isImageOverlay = false
                                 )
                             }
                         }
                     }
-                    // التعليق المرافق للصور (نص يُرسل مع الصورة في رسالة واحدة) + الوقت تحته
-                    if (cleanText.isNotBlank()) {
-                        val richCap = remember(cleanText) { buildRichMessageContent(cleanText, 19.sp, 20.dp) }
-                        androidx.compose.runtime.CompositionLocalProvider(
-                            androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
+                }
+            } else if (msg.attachments.any { it.type == AttachmentType.VIDEO }) {
+                VideoBubbleContent(
+                    att = msg.attachments.first { it.type == AttachmentType.VIDEO },
+                    isMe = isMe,
+                    msg = msg,
+                    screenWidth = screenWidth,
+                    screenHeight = screenHeight
+                )
+            } else if (documentAtt != null) {
+                FileBubbleContent(
+                    att = documentAtt,
+                    caption = cleanText,
+                    isMe = isMe,
+                    textColor = textColor,
+                    timeColor = timeColor,
+                    msg = msg,
+                    onCancelUpload = onCancelUpload?.let { cb -> { cb(msg) } }
+                )
+            } else if (cleanText.isNotBlank()) {
+                val detectedUrl = remember(cleanText) { extractFirstUrl(cleanText) }
+                var isSingleLine by remember(cleanText) { mutableStateOf(detectedUrl == null) }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
+                ) {
+                    if (isSingleLine) {
+                        val richSingle = remember(cleanText) { buildRichMessageContent(cleanText, 19.sp, 20.dp) }
+                        FlowRow(
+                            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = if (__nameAbove && msg.replyTo == null) 0.dp else 6.dp, bottom = 6.dp)
                         ) {
-                            Column(
+                            Text(
+                                text = richSingle.text,
+                                inlineContent = richSingle.inlineContent,
+                                color = textColor,
+                                fontSize = 16.5.sp,
+                                lineHeight = 24.sp,
+                                maxLines = 1,
+                                style = androidx.compose.ui.text.TextStyle(textDirection = androidx.compose.ui.text.style.TextDirection.Content),
+                                onTextLayout = { result ->
+                                    if (result.lineCount > 1 || result.hasVisualOverflow) {
+                                        isSingleLine = false
+                                    }
+                                }
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Row(
+                                modifier = Modifier.align(Alignment.Bottom),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                                MessageIndicators(
+                                    isMe = isMe,
+                                    status = msg.status,
+                                    isRead = false,
+                                    isSaved = msg.isSaved,
+                                    isPinned = msg.isPinned,
+                                    isImageOverlay = false
+                                )
+                            }
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = if (__nameAbove && msg.replyTo == null) 0.dp else 6.dp, bottom = 5.dp)
+                        ) {
+                            if (detectedUrl != null) {
+                                LinkPreviewCard(url = detectedUrl, isMe = isMe, textColor = textColor)
+                            }
+                            val richMulti = remember(cleanText) { buildRichMessageContent(cleanText, 19.sp, 20.dp) }
+                            Text(
+                                text = richMulti.text,
+                                inlineContent = richMulti.inlineContent,
+                                color = textColor,
+                                fontSize = 16.5.sp,
+                                lineHeight = 24.sp,
+                                style = androidx.compose.ui.text.TextStyle(textDirection = androidx.compose.ui.text.style.TextDirection.Content)
+                            )
+                            Row(
                                 modifier = Modifier
-                                    .then(if (LocalChannelFullWidth.current) Modifier.fillMaxWidth() else Modifier.widthIn(max = screenWidth * 0.66f))
-                                    .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 5.dp)
+                                    .align(Alignment.End)
+                                    .padding(top = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = richCap.text,
-                                    inlineContent = richCap.inlineContent,
-                                    color = textColor,
-                                    fontSize = 16.5.sp,
-                                    lineHeight = 24.sp,
-                                    style = androidx.compose.ui.text.TextStyle(textDirection = androidx.compose.ui.text.style.TextDirection.Content)
+                                Text(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                                MessageIndicators(
+                                    isMe = isMe,
+                                    status = msg.status,
+                                    isRead = false,
+                                    isSaved = msg.isSaved,
+                                    isPinned = msg.isPinned,
+                                    isImageOverlay = false
                                 )
-                                Row(
-                                    modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    MsgTimeText(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
-                                    MessageIndicators(
-                                        isMe = isMe,
-                                        status = msg.status,
-                                        isRead = false,
-                                        isSaved = msg.isSaved,
-                                        isPinned = msg.isPinned,
-                                        isImageOverlay = false
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    }
-                } else if (audioAtt != null) {
-                    val audioCtx = androidx.compose.ui.platform.LocalContext.current
-                    val audioFiles by MediaIndex.files.collectAsState()
-                    val audioState by AudioPlayerManager.state.collectAsState()
-                    val isThis = audioState.messageId == audioAtt.messageId
-                    val playing = isThis && audioState.isPlaying
-                    val preparing = isThis && audioState.isPreparing
-                    LaunchedEffect(playing) {
-                        while (playing) {
-                            AudioPlayerManager.refreshPosition()
-                            kotlinx.coroutines.delay(120)
-                        }
-                    }
-                    val totalMs = if (isThis && audioState.durationMs > 0) audioState.durationMs.toLong() else (audioAtt.durationMs ?: 0L)
-                    val posMs = if (isThis) audioState.positionMs.toLong() else 0L
-                    val progress = if (totalMs > 0) (posMs.toFloat() / totalMs).coerceIn(0f, 1f) else 0f
-                    fun fmt(ms: Long): String { val s = (ms / 1000).toInt(); return "${s / 60}:${(s % 60).toString().padStart(2, '0')}" }
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).width(200.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(if (isMe) Color.White else Color(0xFF007AFF))
-                                .clickable {
-                                    val src = audioFiles[audioAtt.messageId] ?: audioAtt.url
-                                    AudioPlayerManager.toggle(audioCtx, audioAtt.messageId, src)
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (preparing) {
-                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = if (isMe) Color(0xFF4FA953) else Color.White)
-                            } else {
-                                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = if (isMe) Color(0xFF4FA953) else Color.White, modifier = Modifier.size(24.dp))
-                            }
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(modifier = Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                val h = listOf(2, 4, 3, 5, 8, 4, 2, 5, 7, 4, 3, 2, 4, 6)
-                                h.forEachIndexed { i, v ->
-                                    val active = (i + 1).toFloat() / h.size <= progress
-                                    val base = if (isMe) Color.White else Color(0xFF007AFF)
-                                    Box(modifier = Modifier.weight(1f).height((v*2).dp).clip(CircleShape).background(if (active) base else base.copy(if (isMe) 0.6f else 0.4f)))
-                                }
-                            }
-                            Row(modifier = Modifier.fillMaxWidth().padding(top=2.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (isThis && (playing || posMs > 0)) fmt(posMs) else fmt(totalMs), fontSize = 11.sp, color = timeColor)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    MsgTimeText(msg.time, fontSize = 10.sp, color = timeColor)
-                                    MessageIndicators(
-                                        isMe = isMe,
-                                        status = msg.status,
-                                        isRead = false,
-                                        isSaved = msg.isSaved,
-                                        isPinned = msg.isPinned,
-                                        isImageOverlay = false
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else if (msg.attachments.any { it.type == AttachmentType.VIDEO }) {
-                    VideoBubbleContent(
-                        att = msg.attachments.first { it.type == AttachmentType.VIDEO },
-                        isMe = isMe,
-                        msg = msg,
-                        screenWidth = screenWidth,
-                        screenHeight = screenHeight
-                    )
-                } else if (documentAtt != null) {
-                    FileBubbleContent(
-                        att = documentAtt,
-                        caption = cleanText,
-                        isMe = isMe,
-                        textColor = textColor,
-                        timeColor = timeColor,
-                        msg = msg,
-                        onCancelUpload = onCancelUpload?.let { cb -> { cb(msg) } }
-                    )
-                } else if (cleanText.isNotBlank()) {
-                    val detectedUrl = remember(cleanText) { extractFirstUrl(cleanText) }
-                    var isSingleLine by remember(cleanText) { mutableStateOf(detectedUrl == null) }
-                    androidx.compose.runtime.CompositionLocalProvider(
-                        androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
-                    ) {
-                        if (isSingleLine) {
-                            val richSingle = remember(cleanText) { buildRichMessageContent(cleanText, 19.sp, 20.dp) }
-                            FlowRow(
-                                modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = if (__nameAbove && msg.replyTo == null) 0.dp else 6.dp, bottom = 6.dp)
-                            ) {
-                                Text(
-                                    text = richSingle.text,
-                                    inlineContent = richSingle.inlineContent,
-                                    color = textColor,
-                                    fontSize = 16.5.sp,
-                                    lineHeight = 24.sp,
-                                    maxLines = 1,
-                                    style = androidx.compose.ui.text.TextStyle(textDirection = androidx.compose.ui.text.style.TextDirection.Content),
-                                    onTextLayout = { result ->
-                                        if (result.lineCount > 1 || result.hasVisualOverflow) {
-                                            isSingleLine = false
-                                        }
-                                    }
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Row(
-                                    modifier = Modifier.align(Alignment.Bottom),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    MsgTimeText(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
-                                    MessageIndicators(
-                                        isMe = isMe,
-                                        status = msg.status,
-                                        isRead = false,
-                                        isSaved = msg.isSaved,
-                                        isPinned = msg.isPinned,
-                                        isImageOverlay = false
-                                    )
-                                }
-                            }
-                        } else {
-                            Column(
-                                modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = if (__nameAbove && msg.replyTo == null) 0.dp else 6.dp, bottom = 5.dp)
-                            ) {
-                                if (detectedUrl != null) {
-                                    LinkPreviewCard(url = detectedUrl, isMe = isMe, textColor = textColor)
-                                }
-                                val richMulti = remember(cleanText) { buildRichMessageContent(cleanText, 19.sp, 20.dp) }
-                                // الوقت على سطر النص الأخير إن اتّسع (وإلا ينزل لسطر جديد): نحجز له فراغًا في آخر النص
-                                // ونرسمه فوق ذلك الفراغ، في جهة نهاية اتجاه النص (يسارًا للعربية ويمينًا للاتينية).
-                                val textRtl = remember(cleanText) {
-                                    var r = false
-                                    for (ch in cleanText) {
-                                        val d = Character.getDirectionality(ch)
-                                        if (d == Character.DIRECTIONALITY_LEFT_TO_RIGHT) { r = false; break }
-                                        if (d == Character.DIRECTIONALITY_RIGHT_TO_LEFT || d == Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC) { r = true; break }
-                                    }
-                                    r
-                                }
-                                val measurer = androidx.compose.ui.text.rememberTextMeasurer()
-                                val densityLocal = androidx.compose.ui.platform.LocalDensity.current
-                                val timeShown = msg.time.removePrefix("\uD83D\uDC41 ")
-                                val timePx = remember(timeShown) {
-                                    measurer.measure(
-                                        androidx.compose.ui.text.AnnotatedString(timeShown),
-                                        androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                    ).size.width
-                                }
-                                val extraDp = (if (msg.time.startsWith("\uD83D\uDC41 ")) 20 else 0) +
-                                    (if (isMe) 20 else 0) + (if (msg.isPinned) 16 else 0) + (if (msg.isSaved) 16 else 0) + 14
-                                val gapPx = timePx + with(densityLocal) { extraDp.dp.toPx() }
-                                val withGap = remember(richMulti, gapPx) {
-                                    androidx.compose.ui.text.buildAnnotatedString {
-                                        append(richMulti.text)
-                                        append(" ")
-                                        appendInlineContent("lab_time_gap", "\u00A0")
-                                    }
-                                }
-                                val gapContent = remember(richMulti, gapPx) {
-                                    richMulti.inlineContent + mapOf(
-                                        "lab_time_gap" to androidx.compose.foundation.text.InlineTextContent(
-                                            androidx.compose.ui.text.Placeholder(
-                                                width = with(densityLocal) { gapPx.toSp() },
-                                                height = 16.sp,
-                                                placeholderVerticalAlign = androidx.compose.ui.text.PlaceholderVerticalAlign.TextBottom
-                                            )
-                                        ) { }
-                                    )
-                                }
-                                Box {
-                                    Text(
-                                        text = withGap,
-                                        inlineContent = gapContent,
-                                        color = textColor,
-                                        fontSize = 16.5.sp,
-                                        lineHeight = 24.sp,
-                                        style = androidx.compose.ui.text.TextStyle(textDirection = androidx.compose.ui.text.style.TextDirection.Content)
-                                    )
-                                    Row(
-                                        modifier = Modifier.align(if (textRtl) Alignment.BottomStart else Alignment.BottomEnd),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        MsgTimeText(msg.time, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = timeColor)
-                                        MessageIndicators(
-                                            isMe = isMe,
-                                            status = msg.status,
-                                            isRead = false,
-                                            isSaved = msg.isSaved,
-                                            isPinned = msg.isPinned,
-                                            isImageOverlay = false
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
                 }
             }
-            if (msg.reactions.isNotEmpty()) {
-                ReactionChip(
-                    reactions = msg.reactions,
-                    messageId = msg.id,
-                    modifier = Modifier
-                        .align(if (isMe) Alignment.BottomEnd else Alignment.BottomStart)
-                        .padding(horizontal = 10.dp)
-                        .offset(y = 11.dp)
-                )
-            }
         }
 
+        if (!isMe && msg.reactions.isNotEmpty()) {
+            Spacer(Modifier.width(3.dp))
+            Row(
+                modifier = Modifier.offset(y = (-8).dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                msg.reactions.forEach { emoji ->
+                    val reactionUrl = NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji))
+                    if (reactionUrl != null) {
+                        LottieEmojiReaction(url = reactionUrl, size = 34.dp, tapToPlay = true, playKey = "react|$emoji")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -704,8 +632,6 @@ fun ChannelPostCard(
     )
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        // في القناة تمتد الفقاعة الكبيرة بهامش متساوٍ على الجانبين (بدل 85% من العرض)
-        androidx.compose.runtime.CompositionLocalProvider(LocalChannelFullWidth provides true) {
         MessageBubble(
             msg = bubbleMsg,
             showSender = false,
@@ -717,7 +643,6 @@ fun ChannelPostCard(
             onLightLongPress = onLightLongPress,
             onHeavyLongPress = onHeavyLongPress
         )
-        }
 
         // صف التفاعلات: شريحة forward + شريحة تفاعلات (أعلى 4 + مجموع كلي) + شريحة تفاعلي الشخصي
         if (!msg.forwardsLabel.isNullOrBlank() || msg.channelReactions.isNotEmpty() || msg.reactions.isNotEmpty()) {
@@ -725,22 +650,18 @@ fun ChannelPostCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
-                    // نصف الكارد يخرج من الفقاعة: يتداخل مع حافتها السفلية ويقلّل المسافة
-                    .overlapUp(13.dp)
-                    .padding(start = 14.dp, end = 12.dp)
+                    .padding(start = 12.dp, top = 4.dp, end = 12.dp)
                     .horizontalScroll(rememberScrollState())
             ) {
                 if (!msg.forwardsLabel.isNullOrBlank()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .shadow(2.dp, RoundedCornerShape(50))
                             .clip(RoundedCornerShape(50))
-                            .background(__theme.surfaceColor)
-                            .border(0.5.dp, subColor.copy(alpha = 0.25f), RoundedCornerShape(50))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .background(subColor.copy(alpha = 0.08f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
-                        Text(msg.forwardsLabel, color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Text(msg.forwardsLabel, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         Spacer(modifier = Modifier.width(4.dp))
                         Icon(Icons.Filled.ArrowForward, contentDescription = "Forwards", tint = subColor, modifier = Modifier.size(14.dp))
                     }
@@ -750,42 +671,39 @@ fun ChannelPostCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                         modifier = Modifier
-                            .shadow(2.dp, RoundedCornerShape(50))
                             .clip(RoundedCornerShape(50))
-                            .background(__theme.surfaceColor)
-                            .border(0.5.dp, subColor.copy(alpha = 0.25f), RoundedCornerShape(50))
+                            .background(subColor.copy(alpha = 0.08f))
                             .clickable { showBreakdown = true }
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
                         val topFour = msg.channelReactions.sortedByDescending { it.count }.take(4)
                         topFour.forEach { reaction ->
                             val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
                             if (url != null) {
-                                LottieEmojiReaction(url = url, size = 15.dp, tapToPlay = true, autoPlayOnce = remember(url) { ReactionPlayRegistry.shouldPlay(msg.id + "|" + reaction.emoji) })
+                                LottieEmojiReaction(url = url, size = 17.dp, tapToPlay = true, playKey = "react|${reaction.emoji}")
                             } else {
-                                Text(reaction.emoji, fontSize = 12.sp)
+                                Text(reaction.emoji, fontSize = 13.sp)
                             }
                         }
                         val totalLabel = msg.totalInteractionsLabel
                             ?: formatReactionCount(msg.channelReactions.sumOf { it.count })
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(totalLabel, color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Text(totalLabel, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }
                 if (msg.reactions.isNotEmpty()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .shadow(2.dp, RoundedCornerShape(50))
                             .clip(RoundedCornerShape(50))
-                            .background(__theme.surfaceColor)
+                            .background(subColor.copy(alpha = 0.14f))
                             .border(1.dp, subColor.copy(alpha = 0.3f), RoundedCornerShape(50))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .padding(horizontal = 8.dp, vertical = 5.dp)
                     ) {
                         msg.reactions.forEach { emoji ->
                             val myUrl = remember(emoji) { NotoEmojiMap.remoteUrlFor(NotoEmojiMap.reactionToEmoji(emoji)) }
                             if (myUrl != null) {
-                                LottieEmojiReaction(url = myUrl, size = 15.dp, tapToPlay = true, autoPlayOnce = remember(myUrl) { ReactionPlayRegistry.shouldPlay(msg.id + "|" + emoji) })
+                                LottieEmojiReaction(url = myUrl, size = 16.dp, tapToPlay = true, playKey = "react|$emoji")
                             }
                         }
                     }
@@ -843,7 +761,7 @@ fun ReactionBreakdownDialog(
                             }
                             val url = remember(reaction.emoji) { NotoEmojiMap.remoteUrlFor(reaction.emoji) }
                             if (url != null) {
-                                LottieEmojiReaction(url = url, size = 20.dp)
+                                LottieEmojiReaction(url = url, size = 20.dp, loopForever = false)
                             } else {
                                 Text(reaction.emoji, fontSize = 16.sp)
                             }
@@ -1383,7 +1301,9 @@ private fun androidx.compose.ui.text.AnnotatedString.Builder.appendTextWithEmoji
                 if (url != null) {
                     LottieEmojiReaction(
                         url = url,
-                        size = emojiSizeDp
+                        size = emojiSizeDp,
+                        tapToPlay = true,
+                        playKey = "inline|$g"
                     )
                 } else {
                     Text(g, fontSize = emojiSize)
@@ -1496,6 +1416,9 @@ fun FileBubbleContent(
     val sizeStr = formatFileSize(att.fileSize)
     val subtitle = listOf(sizeStr, ext).filter { it.isNotBlank() }.joinToString("  ·  ")
     val isUploading = msg.status == MessageStatus.SENDING
+    // نسبة تقدّم الرفع (إن وُجدت)
+    val upMap by com.example.util.UploadProgress.state.collectAsState()
+    val upP = upMap[msg.id]
     val isFailed = msg.status == MessageStatus.FAILED
 
     val fileCtx = androidx.compose.ui.platform.LocalContext.current
@@ -1504,11 +1427,15 @@ fun FileBubbleContent(
     val localFilePath = fileIndex[att.messageId]
     val fileDl = fileStates[att.messageId]
     val isRemoteDoc = !att.url.startsWith("content://") && !att.url.startsWith("file://")
-    val canDownloadDoc = !isMe && localFilePath == null && isRemoteDoc && !isUploading
+    // انتهت صلاحية الملف على الخادم ولا توجد نسخة محلية
+    val fileExpired = localFilePath == null && isRemoteDoc &&
+        (com.example.util.MediaExpiry.isExpired(att.url) ||
+            (fileDl is MediaDlState.Failed && fileDl.reason == "expired"))
+    val canDownloadDoc = !isMe && localFilePath == null && isRemoteDoc && !isUploading && !fileExpired
 
     Column(
         modifier = Modifier
-            .clickable(enabled = !isUploading) {
+            .clickable(enabled = !isUploading && !fileExpired) {
                 when {
                     localFilePath != null -> com.example.util.MediaStorage.openFile(fileCtx, localFilePath, att.mimeType)
                     canDownloadDoc && fileDl is MediaDlState.Downloading -> MediaDownloadManager.cancel(att.messageId)
@@ -1582,8 +1509,9 @@ fun FileBubbleContent(
                 // سطر واحد: الحجم/الحالة في اليسار، والوقت وعلامة الإرسال في اليمين (بدل سطر منفصل)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val statusText = when {
-                        isUploading -> "جاري الرفع..."
+                        isUploading -> if (upP != null && upP > 0f) "جاري الرفع ${(upP * 100).toInt()}%" else "جاري الرفع..."
                         isFailed -> "فشل الإرسال"
+                        fileExpired -> com.example.util.MediaExpiry.LABEL
                         else -> subtitle
                     }
                     Text(
@@ -1596,7 +1524,7 @@ fun FileBubbleContent(
                         modifier = Modifier.weight(1f)
                     )
                     if (caption.isBlank()) {
-                        MsgTimeText(msg.time, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                        Text(msg.time, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Medium, color = timeColor)
                         MessageIndicators(
                             isMe = isMe,
                             status = msg.status,
@@ -1625,7 +1553,7 @@ fun FileBubbleContent(
                 modifier = Modifier.align(Alignment.End),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                MsgTimeText(msg.time, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = timeColor)
+                Text(msg.time, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = timeColor)
                 MessageIndicators(
                     isMe = isMe,
                     status = msg.status,
@@ -1700,7 +1628,7 @@ fun VideoBubbleContent(
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            MsgTimeText(msg.time, fontSize = 10.sp, color = Color.White)
+            Text(msg.time, fontSize = 10.sp, color = Color.White)
             MessageIndicators(
                 isMe = isMe,
                 status = msg.status,

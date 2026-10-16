@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -29,8 +28,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
@@ -42,43 +39,6 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.theme.deleteRed
 import kotlinx.coroutines.delay
 
-// ===================== قوائم الإيموجي =====================
-/** صف التفاعل السريع في الدردشة الفردية/المجموعات (افتراضي تيليجرام). */
-val TgQuickReactions = listOf("❤️", "👍", "👎", "🔥", "🥰", "👏", "😁")
-
-/** شبكة التفاعلات الموسّعة (نفس ترتيب تيليجرام، 8 أعمدة). */
-val TgAllReactions = listOf(
-    "❤️", "👍", "👎", "🔥", "🥰", "👏", "😁", "🤔",
-    "🤯", "😱", "🤬", "😢", "🎉", "🤩", "🤮", "💩",
-    "🙏", "👌", "🕊️", "🤡", "🥱", "🥴", "😍", "🐳",
-    "💯", "🤣", "⚡", "🍌", "🏆", "💔", "🤨", "😐",
-    "🍓", "🍾", "💋", "😈", "😴", "😭", "🤓", "👻",
-    "👀", "🎃", "🙈", "😇", "😨", "🤝", "🤗", "🎅",
-    "🎄", "💅", "🤪", "🗿", "🆒", "💘", "🙉", "🦄",
-    "😘", "💊", "🙊", "😎", "👾", "😡"
-)
-
-/** تفاعلات القنوات المخصّصة: تظهر وحدها في بطاقة مربعة وسط الشاشة. */
-val ChannelReactionEmojis = listOf(
-    "\uD83D\uDC8E", "\uD83D\uDCB8", "\uD83D\uDCC9", "\uD83D\uDCC8", "\uD83E\uDE99", "\uD83E\uDE8E",
-    "\uD83D\uDC4D", "\uD83D\uDD25", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE0D", "\uD83D\uDE22",
-    "\uD83D\uDE21", "\uD83D\uDC4F", "\uD83D\uDE4F", "\uD83D\uDCAF", "\uD83C\uDF89", "\uD83D\uDE31",
-    "\uD83E\uDD14", "\uD83D\uDC40", "\uD83D\uDC94", "\uD83D\uDE34", "\uD83E\uDD1D", "\uD83D\uDE4C",
-    "\uD83D\uDE05", "\uD83E\uDD73", "\uD83D\uDE0E", "\uD83E\uDD29", "\uD83D\uDE2D", "\uD83E\uDD7A",
-    "\uD83D\uDE24", "\uD83E\uDD17", "\uD83D\uDC4C", "\u270C\uFE0F", "\uD83D\uDE80", "\u2B50",
-    "\uD83C\uDFC6", "\uD83D\uDCAA", "\uD83E\uDD23", "\uD83D\uDE0A", "\uD83D\uDE48", "\uD83C\uDF39"
-).distinct()
-
-private class OverlayItem(val label: String, val icon: ImageVector, val danger: Boolean = false, val action: () -> Unit)
-
-private val EaseOut = androidx.compose.animation.core.FastOutSlowInEasing
-
-/**
- * قائمة الضغط المطوّل (بدون ارتداد ولا تتبّع: كل شيء يظهر في مكانه ويبقى ثابتًا):
- *  - القناة: بطاقة صغيرة جميلة في منتصف الشاشة بالتفاعلات المخصّصة فقط (بدون عنوان)، وتحتها قائمة الإجراءات.
- *  - الفردي/المجموعات (نمط تيليجرام): الفقاعة مضيئة، شريط تفاعلات فوقها، وقائمة إجراءات تحتها،
- *    وسهم يفتح بطاقة كل الإيموجيات بتصنيفاتها.
- */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun MessageContextMenuOverlay(
@@ -99,242 +59,194 @@ fun MessageContextMenuOverlay(
     bounds: Rect = Rect.Zero
 ) {
     var visible by remember { mutableStateOf(false) }
-    var expanded by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-    val dismiss: () -> Unit = { visible = false }
+    // للقنوات فقط: القائمة تبدأ بالأيقونات العادية، وتتحول لصف الإيموجيات
+    // فقط بعد الضغط على أيقونة "React" (بدل ظهور صف التفاعلات دائماً فوق).
+    var showReactionPicker by remember { mutableStateOf(!isChannel) }
+    var showFullEmojiPicker by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(Unit) {
+        visible = true
+    }
+    
+    val handleDismiss = {
+        visible = false
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Transparent)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { handleDismiss() }
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(250)) + fadeIn(tween(250)),
+            exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)) + fadeOut(tween(200)),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 16.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {} // block clicks
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .animateContentSize(animationSpec = tween(220))
+                        .padding(bottom = 10.dp, top = 14.dp)
+                ) {
+                    // Always show reactions
+                    if (showReactionPicker) {
+                    // 💎 💸 📉 📈 🪙 🪎 + باقي الإيموجيات — كلها إيموجيات النظام الثابتة
+                    // (بدون أنيميشن هنا)، وتظهر متحركة فقط بعد اختيارها داخل شاشة الرسائل
+                    val allQuickReactions = listOf(
+                        "\uD83D\uDC8E", "\uD83D\uDCB8", "\uD83D\uDCC9",
+                        "\uD83D\uDCC8", "\uD83E\uDE99", "\uD83E\uDE8E",
+                        "\uD83D\uDE02", "\uD83D\uDE0D", "\uD83D\uDE22", "\uD83D\uDE21",
+                        "\uD83D\uDC4D", "\uD83D\uDC4F", "\uD83D\uDE4F", "\uD83D\uDD25", "\uD83D\uDCAF",
+                        "\uD83C\uDF89", "\uD83D\uDE31", "\uD83E\uDD14", "\uD83D\uDC40",
+                        "\u2764\uFE0F", "\uD83D\uDC94", "\uD83D\uDE34", "\uD83E\uDD1D", "\uD83D\uDE4C",
+                        "\uD83D\uDE05", "\uD83E\uDD73", "\uD83D\uDE0E", "\uD83E\uDD29",
+                        "\uD83D\uDE2D", "\uD83E\uDD7A", "\uD83D\uDE24", "\uD83E\uDD17",
+                        "\uD83D\uDC4C", "\u270C\uFE0F", "\uD83D\uDE80", "\u2B50",
+                        "\uD83C\uDFC6", "\uD83D\uDCAA", "\uD83E\uDD23", "\uD83D\uDE0A",
+                        "\uD83D\uDE48", "\uD83C\uDF39", "\uD83C\uDFAF"
+                    )
+                    run {
+                        // صف 6 إيموجيات متحركة: للمحادثات بين الأشخاص (كما كان) وللقنوات (والباقي يظهر بعد "React")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            allQuickReactions.take(6).forEach { reaction ->
+                                val reactionUrl = com.example.emoji.NotoEmojiMap.remoteUrlFor(reaction)
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            onReactionSelected(reaction)
+                                            handleDismiss()
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (reactionUrl != null) {
+                                        LottieEmojiReaction(url = reactionUrl, size = 38.dp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // القائمة الكاملة السفلية (36+ إيموجي) — للقناة فقط، تظهر بعد الضغط على "React"
+                    if (isChannel) {
+                    val moreReactions = listOf(
+                        "\uD83D\uDE02", "\uD83D\uDE0D", "\uD83D\uDE22", "\uD83D\uDE21",
+                        "\uD83D\uDC4F", "\uD83D\uDE4F", "\uD83D\uDD25", "\uD83D\uDCAF",
+                        "\uD83C\uDF89", "\uD83D\uDE31", "\uD83E\uDD14", "\uD83D\uDC40",
+                        "\uD83D\uDC94", "\uD83D\uDE34", "\uD83E\uDD1D", "\uD83D\uDE4C",
+                        "\uD83D\uDE05", "\uD83E\uDD73", "\uD83D\uDE0E", "\uD83E\uDD29",
+                        "\uD83D\uDE2D", "\uD83E\uDD7A", "\uD83D\uDE24", "\uD83E\uDD17",
+                        "\uD83D\uDC4C", "\u270C\uFE0F", "\uD83D\uDE80", "\u2B50",
+                        "\uD83C\uDFC6", "\uD83D\uDCAA", "\uD83E\uDD23", "\uD83D\uDE0A",
+                        "\uD83D\uDE48", "\uD83E\uDD73", "\uD83C\uDF39", "\uD83C\uDFAF"
+                    )
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 210.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        moreReactions.forEach { reaction ->
+                            val reactionUrl = com.example.emoji.NotoEmojiMap.remoteUrlFor(reaction)
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        onReactionSelected(reaction)
+                                        handleDismiss()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (reactionUrl != null) {
+                                    LottieEmojiReaction(url = reactionUrl, size = 32.dp)
+                                }
+                            }
+                        }
+                    }
+                    }
+                    }
+
+                    if (showFullMenu && !(isChannel && showReactionPicker)) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        val textColor = MaterialTheme.colorScheme.onSurface
+                        val iconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                           Column(modifier = Modifier.weight(1f)) {
+                               if (isChannel) {
+                                   MessageMenuItem("React", Icons.Outlined.AddReaction, textColor, iconColor, { showReactionPicker = true })
+                               } else {
+                                   MessageMenuItem("Reply", Icons.AutoMirrored.Outlined.Reply, textColor, iconColor, { onReply(); handleDismiss() })
+                               }
+                               MessageMenuItem("Forward", Icons.AutoMirrored.Outlined.ArrowForward, textColor, iconColor, { onForward(); handleDismiss() })
+                               MessageMenuItem("Copy", Icons.Outlined.ContentCopy, textColor, iconColor, { onCopy(); handleDismiss() })
+                           }
+                           Column(modifier = Modifier.weight(1f)) {
+                               MessageMenuItem("Select", Icons.Outlined.CheckCircleOutline, textColor, iconColor, { onSelect(); handleDismiss() })
+                               if (message.isMine) {
+                                   MessageMenuItem("Edit", Icons.Outlined.Edit, textColor, iconColor, { onEdit(); handleDismiss() })
+                               }
+                               if (!isChannel) {
+                                   MessageMenuItem(if (message.isPinned) "Unpin" else "Pin", Icons.Outlined.PushPin, textColor, iconColor, { onPin(); handleDismiss() })
+                               }
+                               MessageMenuItem(if (message.isSaved) "Unsave" else "Save", Icons.Outlined.StarBorder, textColor, iconColor, { onSave(); handleDismiss() })
+                               MessageMenuItem("Delete", Icons.Outlined.DeleteOutline, deleteRed, deleteRed, { onDelete(); handleDismiss() })
+                           }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Auto dismiss after animation
     LaunchedEffect(visible) {
         if (!visible) {
-            delay(180)
+            delay(200)
             onDismissRequest()
         }
     }
 
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val cfg = androidx.compose.ui.platform.LocalConfiguration.current
-    val surface = MaterialTheme.colorScheme.surface
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val anchor = bounds   // ثابتة: تُحدَّد بعد استقرار القائمة، فلا تتحرك العناصر من مكانها
-
-    val scrimAlpha by androidx.compose.animation.core.animateFloatAsState(if (visible) 0.5f else 0f, tween(200), label = "ctx_scrim")
-
-    val menuItems = buildList {
-        if (!isChannel) add(OverlayItem("رد", Icons.AutoMirrored.Outlined.Reply) { onReply(); dismiss() })
-        if (message.text.isNotBlank()) add(OverlayItem("نسخ", Icons.Outlined.ContentCopy) { onCopy(); dismiss() })
-        add(OverlayItem("إعادة توجيه", Icons.AutoMirrored.Outlined.ArrowForward) { onForward(); dismiss() })
-        if (!isChannel) add(OverlayItem(if (message.isPinned) "إلغاء التثبيت" else "تثبيت", Icons.Outlined.PushPin) { onPin(); dismiss() })
-        if (message.isMine && message.text.isNotBlank()) add(OverlayItem("تعديل", Icons.Outlined.Edit) { onEdit(); dismiss() })
-        add(OverlayItem(if (message.isSaved) "إلغاء الحفظ" else "حفظ", Icons.Outlined.StarBorder) { onSave(); dismiss() })
-        add(OverlayItem("تحديد", Icons.Outlined.CheckCircleOutline) { onSelect(); dismiss() })
-        add(OverlayItem("حذف", Icons.Outlined.DeleteOutline, danger = true) { onDelete(); dismiss() })
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        // التعتيم مع "ثقب" يُبقي الفقاعة مضيئة (للدردشة)
-        androidx.compose.foundation.Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer(compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen)
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { dismiss() }
-        ) {
-            drawRect(Color.Black.copy(alpha = scrimAlpha))
-            if (!isChannel && anchor.height > 1f) {
-                drawRoundRect(
-                    color = Color.Black,
-                    topLeft = anchor.topLeft,
-                    size = anchor.size,
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(18.dp.toPx()),
-                    blendMode = androidx.compose.ui.graphics.BlendMode.Clear
-                )
-            }
-        }
-
-        if (isChannel) {
-            // ============ القناة: بطاقة صغيرة جميلة وسط الشاشة ============
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                AnimatedVisibility(
-                    visible = visible,
-                    enter = fadeIn(tween(180)) + scaleIn(tween(220, easing = EaseOut), initialScale = 0.94f),
-                    exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.96f)
-                ) {
-                    Column(
-                        modifier = Modifier.widthIn(max = 300.dp).padding(horizontal = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(28.dp),
-                            color = surface,
-                            shadowElevation = 18.dp,
-                            modifier = Modifier.size(264.dp)
-                        ) {
-                            Box(Modifier.fillMaxSize()) {
-                                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                                    columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(6),
-                                    contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 14.dp, bottom = 14.dp),
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    gridItems(ChannelReactionEmojis, key = { it }) { e ->
-                                        Box(
-                                            Modifier
-                                                .aspectRatio(1f)
-                                                .clip(RoundedCornerShape(14.dp))
-                                                .clickable { onReactionSelected(e); dismiss() },
-                                            contentAlignment = Alignment.Center
-                                        ) { StaticEmojiImage(e, 30.dp) }
-                                    }
-                                }
-                                // تلاشٍ ناعم عند الحافتين العليا والسفلى ليبدو التمرير سلسًا
-                                Box(
-                                    Modifier.align(Alignment.TopCenter).fillMaxWidth().height(14.dp)
-                                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(surface, Color.Transparent)))
-                                )
-                                Box(
-                                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(14.dp)
-                                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, surface)))
-                                )
-                            }
-                        }
-                        if (showFullMenu) {
-                            Spacer(Modifier.height(10.dp))
-                            OverlayActionsCard(menuItems, surface, onSurface, Modifier.fillMaxWidth())
-                        }
-                    }
-                }
-            }
-        } else {
-            // ============ الفردي والمجموعات: نمط تيليجرام ============
-            val screenH = cfg.screenHeightDp.dp
-            val screenW = cfg.screenWidthDp.dp
-            val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-            val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            val has = anchor.height > 1f
-            val aTop = with(density) { anchor.top.toDp() }
-            val aBottom = with(density) { anchor.bottom.toDp() }
-            val barH = 52.dp
-            val cardH = minOf(380.dp, screenH * 0.55f)
-            val barTop = if (has) (aTop - barH - 8.dp).coerceAtLeast(statusTop + 8.dp) else screenH * 0.3f
-            val expTop = minOf(barTop, screenH - cardH - navBottom - 12.dp).coerceAtLeast(statusTop + 8.dp)
-            val menuH = 44.dp * menuItems.size + 12.dp
-            val menuTop = if (has) minOf(aBottom + 8.dp, screenH - menuH - navBottom - 12.dp) else screenH * 0.45f
-            val side = if (message.isMine) Alignment.TopEnd else Alignment.TopStart
-            val topOffset by androidx.compose.animation.core.animateDpAsState(if (expanded) expTop else barTop, tween(240, easing = EaseOut), label = "bar_top")
-
-            AnimatedVisibility(
-                visible = visible,
-                modifier = Modifier.align(side).padding(horizontal = 12.dp).offset(y = topOffset),
-                enter = fadeIn(tween(160)) + scaleIn(tween(200, easing = EaseOut), initialScale = 0.92f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (message.isMine) 1f else 0f, 1f)),
-                exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.94f)
-            ) {
-                AnimatedContent(
-                    targetState = expanded,
-                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
-                    label = "react_bar"
-                ) { ex ->
-                    if (!ex) {
-                        Surface(shape = RoundedCornerShape(27.dp), color = surface, shadowElevation = 10.dp) {
-                            Row(
-                                Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                TgQuickReactions.forEach { e ->
-                                    Box(
-                                        Modifier.size(38.dp).clip(CircleShape).clickable { onReactionSelected(e); dismiss() },
-                                        contentAlignment = Alignment.Center
-                                    ) { StaticEmojiImage(e, 30.dp) }
-                                }
-                                Spacer(Modifier.width(4.dp))
-                                Box(
-                                    Modifier.size(32.dp).clip(CircleShape).background(onSurface.copy(alpha = 0.08f)).clickable { expanded = true },
-                                    contentAlignment = Alignment.Center
-                                ) { Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = null, tint = onSurface.copy(alpha = 0.7f), modifier = Modifier.size(22.dp)) }
-                            }
-                        }
-                    } else {
-                        ReactionPickerCard(
-                            surface = surface, onSurface = onSurface,
-                            modifier = Modifier.width(screenW - 24.dp).height(cardH),
-                            onPick = { e -> onReactionSelected(e); dismiss() }
-                        )
-                    }
-                }
-            }
-
-            if (showFullMenu) {
-                AnimatedVisibility(
-                    visible = visible && !expanded,
-                    modifier = Modifier.align(side).padding(horizontal = 12.dp).offset(y = menuTop),
-                    enter = fadeIn(tween(160)) + scaleIn(tween(200, easing = EaseOut), initialScale = 0.94f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (message.isMine) 1f else 0f, 0f)),
-                    exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.96f)
-                ) {
-                    OverlayActionsCard(menuItems, surface, onSurface, Modifier.width(250.dp))
-                }
-            }
-        }
-    }
-}
-
-/** بطاقة كل الإيموجيات: تبويب "المفضلة" (ترتيب تيليجرام) + كل تصنيفات الإيموجي، مع تمرير سلس. */
-@Composable
-private fun ReactionPickerCard(surface: Color, onSurface: Color, modifier: Modifier, onPick: (String) -> Unit) {
-    var cat by remember { mutableIntStateOf(0) }
-    val accent = MaterialTheme.colorScheme.primary
-    val list = if (cat == 0) TgAllReactions else EMOJI_CATEGORIES[cat - 1].emojis
-    Surface(shape = RoundedCornerShape(24.dp), color = surface, shadowElevation = 14.dp, modifier = modifier) {
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ReactionTab(Icons.Outlined.StarBorder, cat == 0, accent, onSurface) { cat = 0 }
-                EMOJI_CATEGORIES.forEachIndexed { i, c -> ReactionTab(c.icon, cat == i + 1, accent, onSurface) { cat = i + 1 } }
-            }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(onSurface.copy(alpha = 0.08f)))
-            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(8),
-                contentPadding = PaddingValues(8.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                gridItems(list, key = { it }) { e ->
-                    Box(
-                        Modifier.aspectRatio(1f).clip(CircleShape).clickable { onPick(e) },
-                        contentAlignment = Alignment.Center
-                    ) { Text(e, fontSize = 26.sp) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReactionTab(icon: ImageVector, selected: Boolean, accent: Color, inactive: Color, onClick: () -> Unit) {
-    Box(
-        Modifier.size(34.dp).clip(CircleShape).background(if (selected) accent.copy(alpha = 0.2f) else Color.Transparent).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) { Icon(icon, contentDescription = null, tint = if (selected) accent else inactive.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) }
-}
-
-@Composable
-private fun OverlayActionsCard(items: List<OverlayItem>, surface: Color, onSurface: Color, modifier: Modifier) {
-    Surface(shape = RoundedCornerShape(18.dp), color = surface, shadowElevation = 12.dp, modifier = modifier) {
-        Column(Modifier.padding(vertical = 6.dp)) {
-            items.forEach { item ->
-                if (item.danger) {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 2.dp).height(1.dp).background(onSurface.copy(alpha = 0.08f)))
-                }
-                val c = if (item.danger) deleteRed else onSurface
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                        .clickable { item.action() }
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(item.label, color = c, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    Icon(item.icon, contentDescription = null, tint = if (item.danger) deleteRed else onSurface.copy(alpha = 0.7f), modifier = Modifier.size(21.dp))
-                }
-            }
-        }
+    if (showFullEmojiPicker) {
+        FullEmojiPickerDialog(
+            onEmojiPicked = { emoji ->
+                onReactionSelected(emoji)
+                showFullEmojiPicker = false
+                handleDismiss()
+            },
+            onDismiss = { showFullEmojiPicker = false }
+        )
     }
 }
 
@@ -466,7 +378,7 @@ fun FullEmojiPickerDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         if (url != null) {
-                            LottieEmojiReaction(url = url, size = 32.dp, animate = false)
+                            LottieEmojiReaction(url = url, size = 32.dp)
                         }
                     }
                 }

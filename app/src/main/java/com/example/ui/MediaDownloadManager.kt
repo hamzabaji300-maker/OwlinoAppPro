@@ -84,8 +84,13 @@ object MediaDownloadManager {
                     readTimeout = 30000
                     instanceFollowRedirects = true
                 }
+                com.example.util.MediaAuth.apply(conn, att.url)
                 conn.connect()
-                if (conn.responseCode !in 200..299) throw IOException("HTTP " + conn.responseCode)
+                val code = conn.responseCode
+                // 404 أو 410: الملف حُذف من الخادم (انتهت مدته)
+                if (code == 404 || code == 410) throw IOException("expired")
+                if (code == 401 || code == 403) throw IOException("forbidden")
+                if (code !in 200..299) throw IOException("HTTP " + code)
                 val total = conn.contentLengthLong.takeIf { it > 0 } ?: (att.fileSize ?: 0L)
 
                 conn.inputStream.use { input ->
