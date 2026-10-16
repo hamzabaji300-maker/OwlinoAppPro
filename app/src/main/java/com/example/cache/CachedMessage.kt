@@ -25,5 +25,8 @@ data class CachedMessage(
     val link_image_url: String? = null,
     // رموز التفاعل مفصولة بـ \u001F (إضافة محلية فقط - Migration 6->7)
     val reactions: String? = null,
-    val reply_markup: String? = null
+    val reply_markup: String? = null,
+    // اسم الملف ونوعه (Migration 7->8)
+    val file_name: String? = null,
+    val mime_type: String? = null
 )

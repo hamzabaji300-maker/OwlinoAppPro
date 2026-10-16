@@ -38,18 +38,24 @@ object LocalFileManager {
 
                 val tempFile = File(mediaDir, "$fileName.tmp")
 
-                val conn = (URL(urlString).openConnection() as java.net.HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                }
-                MediaAuth.apply(conn, urlString)
+                val conn = MediaAuth.openAuthorized(urlString)
                 try {
                     if (conn.responseCode !in 200..299) return@withContext null
+                    val expected = conn.contentLengthLong
+                    var copied = 0L
                     conn.inputStream.use { input ->
                         tempFile.outputStream().use { output ->
-                            input.copyTo(output)
+                            copied = input.copyTo(output)
                         }
                     }
+                    // تنزيل مقطوع أو فارغ لا يُحفظ أبدًا كملف سليم
+                    if (copied <= 0L || (expected > 0 && copied != expected)) {
+                        tempFile.delete()
+                        return@withContext null
+                    }
+                } catch (e: Exception) {
+                    tempFile.delete()
+                    throw e
                 } finally {
                     conn.disconnect()
                 }

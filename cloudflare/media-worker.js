@@ -32,6 +32,23 @@ const LIMITS = {
 
 const ID_RE = /^[A-Za-z0-9_-]{6,80}$/;
 
+// أنواع المستندات المسموح حفظها بنوعها الحقيقي (تُقدَّم دائمًا كتنزيل attachment، لا تُعرض داخل الصفحة).
+// لا نقبل أبدًا text/html ولا image/svg+xml ولا أي سكربت.
+const SAFE_DOC_TYPES = /^(application\/(pdf|zip|x-zip-compressed|msword|rtf|x-7z-compressed|x-rar-compressed|vnd\.rar|vnd\.openxmlformats-officedocument\.[a-z0-9.+-]{1,80}|vnd\.ms-[a-z0-9.+-]{1,40}|vnd\.oasis\.opendocument\.[a-z0-9.+-]{1,40})|text\/(plain|csv))$/;
+const MEDIA_TYPE = /^(image|video|audio)\/[a-z0-9.+-]{1,60}$/;
+
+function safeName(raw) {
+  // نزيل الأحرف التحكمية والفواصل والاقتباس ونقصّ الطول
+  return (raw || '').replace(/[\u0000-\u001f\u007f\/\\"]/g, '').trim().slice(0, 150);
+}
+
+function dispositionFor(name) {
+  if (!name) return 'attachment';
+  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/[%;"]/g, '_');
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 // ذاكرة مؤقتة قصيرة لقرارات القراءة (تقلّل الطلبات إلى Supabase)
 const ACCESS_CACHE = new Map();
 const ALLOW_TTL_MS = 60_000;
@@ -147,11 +164,23 @@ async function handleUpload(request, env, url) {
 
   // المفتاح عشوائي لا يمكن تخمينه
   const key = `${scope}/${chat}/${crypto.randomUUID()}`;
-  // نقبل أنواع الوسائط فقط (صور/فيديو/صوت)، وأي نوع آخر يُحفظ كملف عادي.
-  // هذا يمنع رفع صفحة HTML أو سكربت وتقديمه من عنوان الـ Worker.
+  // نقبل صور/فيديو/صوت بنوعها، والمستندات الشائعة بنوعها الحقيقي (قائمة سماح)، وأي نوع آخر يُحفظ كملف عادي.
+  // هذا يمنع رفع صفحة HTML أو SVG أو سكربت وتقديمه من عنوان الـ Worker.
   const rawType = (request.headers.get('Content-Type') || '').trim().toLowerCase();
-  const contentType = /^(image|video|audio)\/[a-z0-9.+-]{1,60}$/.test(rawType) ? rawType : 'application/octet-stream';
-  await env.MEDIA.put(key, request.body, { httpMetadata: { contentType } });
+  const isMedia = MEDIA_TYPE.test(rawType) && rawType !== 'image/svg+xml';
+  const isDoc = SAFE_DOC_TYPES.test(rawType);
+  const contentType = (isMedia || isDoc) ? rawType : 'application/octet-stream';
+  const httpMetadata = { contentType };
+  // كل ما ليس صورة/فيديو/صوت يُقدَّم كتنزيل باسمه الحقيقي (إن أُرسل)
+  if (!isMedia) httpMetadata.contentDisposition = dispositionFor(safeName(url.searchParams.get('name')));
+  await env.MEDIA.put(key, request.body, { httpMetadata });
+
+  // لا نُنشئ رابطًا لملف ناقص أو فارغ أبدًا
+  const head = await env.MEDIA.head(key);
+  if (!head || head.size !== length) {
+    try { await env.MEDIA.delete(key); } catch (e) {}
+    return json({ error: 'incomplete_upload' }, 500);
+  }
 
   return json(await signedResult(env, url.origin, key, scope));
 }
@@ -199,7 +228,8 @@ async function handleDownload(request, env, url) {
   // حماية المتصفح: لا تخمّن نوع الملف، ولا تنفّذ أي محتوى نشط
   headers.set('x-content-type-options', 'nosniff');
   headers.set('content-security-policy', "default-src 'none'; sandbox");
-  if (headers.get('content-type') === 'application/octet-stream') {
+  // أي شيء ليس صورة/فيديو/صوت يُقدَّم كتنزيل (باسمه الحقيقي إن حُفظ عند الرفع)
+  if (!headers.get('content-disposition') && !MEDIA_TYPE.test(headers.get('content-type') || '')) {
     headers.set('content-disposition', 'attachment');
   }
   if (object.range) {
@@ -207,6 +237,8 @@ async function handleDownload(request, env, url) {
     const end = object.range.end ?? (start + (object.range.length ?? object.size) - 1);
     headers.set('content-range', `bytes ${start}-${end}/${object.size}`);
   }
+  // الطول الكامل معلن للردود الكاملة، فيكشف التطبيق أي تنزيل مقطوع
+  if (!object.range && object.body) headers.set('content-length', String(object.size));
   const status = object.body ? (request.headers.get('range') !== null ? 206 : 200) : 304;
   return new Response(request.method === 'HEAD' ? null : object.body, { headers, status });
 }

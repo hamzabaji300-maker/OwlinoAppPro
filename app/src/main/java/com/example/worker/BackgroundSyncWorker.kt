@@ -234,7 +234,10 @@ class BackgroundSyncWorker(
                                 media_aspect_ratio = it.media_aspect_ratio,
                                 media_group_id = it.media_group_id,
                                 edited_at = it.edited_at,
-                                thumbnail_url = it.thumbnail_url
+                                thumbnail_url = it.thumbnail_url,
+                                file_size = it.media_file_size,
+                                file_name = it.media_file_name,
+                                mime_type = it.media_mime_type
                             )
                         }
                         baseByChat[cid] = base

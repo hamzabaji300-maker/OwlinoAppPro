@@ -27,6 +27,81 @@ object MediaUploader {
     private const val SKIP_COMPRESS_BELOW = 300 * 1024L
     private const val JPEG_QUALITY = 80
 
+    // الحجم النهائي الذي رُفع فعلًا (بعد الضغط) لكل رسالة، لإرساله للمستقبل مع الرسالة
+    private val uploadedSizes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** يرجع حجم الملف الذي رُفع لهذه الرسالة (مرة واحدة) أو null. */
+    fun takeUploadedSize(messageId: String?): Long? = messageId?.let { uploadedSizes.remove(it) }
+
+    /** نسبة العرض/الارتفاع للفيديو كما ستظهر فعلًا (بعد تطبيق التدوير)، أو null. */
+    fun videoAspectRatio(context: Context, uri: Uri): Float? {
+        val r = android.media.MediaMetadataRetriever()
+        return try {
+            r.setDataSource(context, uri)
+            var w = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            var h = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            val rot = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+            if (rot == 90 || rot == 270) { val t = w; w = h; h = t }
+            if (w <= 0 || h <= 0) null else (w.toFloat() / h.toFloat())
+        } catch (e: Exception) {
+            null
+        } finally {
+            try { r.release() } catch (_: Exception) {}
+        }
+    }
+
+
+    /**
+     * يولّد مصغّرة (صورة أو إطار من الفيديو) ويرفعها ويرجع رابطها.
+     * يرجع null عند أي فشل: فشل المصغّرة لا يجب أن يوقف إرسال الرسالة.
+     * يجب استدعاؤها قبل حذف أي ملف مؤقت يخص [uri].
+     */
+    suspend fun generateAndUploadThumbnail(
+        context: Context,
+        supabase: SupabaseClient,
+        bucketName: String,
+        chatId: String,
+        userId: String,
+        scope: String,
+        uri: Uri,
+        type: AttachmentType,
+        baseName: String
+    ): String? {
+        if (type != AttachmentType.IMAGE && type != AttachmentType.VIDEO) return null
+        return try {
+            val bytes = withContext(Dispatchers.IO) {
+                if (type == AttachmentType.VIDEO) ThumbnailUtils.generateVideoThumbnailBytes(context, uri)
+                else ThumbnailUtils.generateThumbnailBytes(context, uri)
+            } ?: return null
+            if (R2Uploader.isConfigured) {
+                R2Uploader.uploadBytes(supabase, chatId, scope, "thumb", "image/jpeg", bytes)
+            } else {
+                val thumbPath = "$chatId/$userId/thumb_$baseName"
+                val bucket = supabase.storage[bucketName]
+                bucket.upload(thumbPath, bytes) { this.upsert = true }
+                bucket.createSignedUrl(thumbPath, 3650.days)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** نوع MIME للمستند: من النظام إن عُرف، وإلا من امتداد الاسم. */
+    fun guessMime(context: Context, originalUri: Uri?, fileName: String?): String? {
+        val fromResolver = try {
+            originalUri?.let { context.contentResolver.getType(it) }
+        } catch (e: Exception) {
+            null
+        }
+        if (!fromResolver.isNullOrBlank() && fromResolver != "application/octet-stream") return fromResolver
+        val ext = fileName?.substringAfterLast('.', "")?.lowercase()?.takeIf { it.isNotEmpty() }
+        val fromExt = ext?.let { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
+        return fromExt ?: fromResolver?.takeIf { it.isNotBlank() }
+    }
+
+
     /** يجهّز الملف ويرفعه ويرجع رابطه الموقّع. يرمي UploadLimitException عند تجاوز الحد. */
     suspend fun prepareAndUpload(
         context: Context,
@@ -38,17 +113,20 @@ object MediaUploader {
         upsert: Boolean = false,
         chatId: String? = null,
         scope: String = "direct",
-        messageId: String? = null
+        messageId: String? = null,
+        fileName: String? = null,
+        mimeType: String? = null
     ): String = withContext(Dispatchers.IO) {
         // الطريق الجديد: Cloudflare R2 (إن كان الـ Worker مضبوطًا ونعرف المحادثة)
         if (chatId != null && R2Uploader.isConfigured) {
             try {
-                return@withContext uploadToR2(context, supabase, chatId, scope, uri, type, messageId)
+                return@withContext uploadToR2(context, supabase, chatId, scope, uri, type, messageId, fileName, mimeType)
             } finally {
                 UploadProgress.clear(messageId)
             }
         }
         val data = prepare(context, uri, type)
+        if (messageId != null) uploadedSizes[messageId] = data.size.toLong()
         val bucket = supabase.storage[bucketName]
         if (upsert) {
             bucket.upload(path, data) { this.upsert = true }
@@ -70,16 +148,20 @@ object MediaUploader {
         scope: String,
         uri: Uri,
         type: AttachmentType,
-        messageId: String? = null
+        messageId: String? = null,
+        fileName: String? = null,
+        mimeType: String? = null
     ): String {
         val size = getFileSize(context, uri)
         UploadLimits.check(type, size)?.let { throw UploadLimitException(it) }
         try {
             if (type == AttachmentType.IMAGE) {
                 val bytes = compressImage(context, uri, size)
-                return R2Uploader.uploadBytes(
+                val url = R2Uploader.uploadBytes(
                     supabase, chatId, scope, "image", sniffImageType(bytes), bytes
                 ) { p -> UploadProgress.set(messageId, p) }
+                if (messageId != null) uploadedSizes[messageId] = bytes.size.toLong()
+                return url
             }
             if (type == AttachmentType.VIDEO) {
                 // نضغط الفيديو على الهاتف أولًا (720p)، ثم نرفعه بالتدفق من الملف المضغوط
@@ -88,28 +170,25 @@ object MediaUploader {
                 try {
                     return R2Uploader.uploadStream(
                         context, supabase, chatId, scope, "video",
-                        if (prepared.compressed) "video/mp4" else contentTypeOf(context, uri, type),
-                        prepared.uri, prepared.size
+                        if (prepared.compressed) "video/mp4" else (mimeType?.takeIf { it.startsWith("video/") } ?: contentTypeOf(context, uri, type)),
+                        prepared.uri, prepared.size,
+                        onSized = { real -> if (messageId != null) uploadedSizes[messageId] = real }
                     ) { p -> UploadProgress.set(messageId, base + p * (1f - base)) }
                 } finally {
                     prepared.tempFile?.delete()
                 }
             }
             val kind = when (type) {
-                AttachmentType.VIDEO -> "video"
                 AttachmentType.AUDIO, AttachmentType.VOICE -> "voice"
                 else -> "file"
             }
-            val contentType = contentTypeOf(context, uri, type)
-            if (size > 0) {
-                // رفع بالتدفق: لا يُحمَّل الفيديو كله في الذاكرة
-                return R2Uploader.uploadStream(
-                    context, supabase, chatId, scope, kind, contentType, uri, size
-                ) { p -> UploadProgress.set(messageId, p) }
-            }
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: throw LocalMediaException("تعذّر قراءة الملف")
-            return R2Uploader.uploadBytes(supabase, chatId, scope, kind, contentType, bytes)
+            val contentType = mimeType?.takeIf { it.isNotBlank() } ?: contentTypeOf(context, uri, type)
+            // دائمًا بالتدفق: يُنسخ المصدر إلى ملف حقيقي ثم يُرفع بطوله الفعلي (يحل مشكلة الأحجام الخاطئة من content://)
+            return R2Uploader.uploadStream(
+                context, supabase, chatId, scope, kind, contentType, uri, size,
+                fileName = fileName,
+                onSized = { real -> if (messageId != null) uploadedSizes[messageId] = real }
+            ) { p -> UploadProgress.set(messageId, p) }
         } catch (e: java.io.FileNotFoundException) {
             throw LocalMediaException("الملف لم يعد متاحًا على الهاتف")
         } catch (e: SecurityException) {

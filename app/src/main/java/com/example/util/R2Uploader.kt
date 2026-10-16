@@ -8,6 +8,7 @@ import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.io.OutputStream
 import java.net.HttpURLConnection
@@ -31,8 +32,9 @@ object R2Uploader {
         kind: String,
         contentType: String,
         bytes: ByteArray,
+        fileName: String? = null,
         onProgress: ((Float) -> Unit)? = null
-    ): String = send(supabase, chatId, scope, kind, contentType, bytes.size.toLong()) { out ->
+    ): String = send(supabase, chatId, scope, kind, contentType, bytes.size.toLong(), fileName) { out ->
         var off = 0
         while (off < bytes.size) {
             val n = minOf(65536, bytes.size - off)
@@ -42,7 +44,13 @@ object R2Uploader {
         }
     }
 
-    /** رفع بالتدفق من الملف مباشرة (دون تحميله كله في الذاكرة). */
+    /**
+     * رفع بالتدفق (دون تحميل الملف كله في الذاكرة).
+     * بعض مزوّدي content:// يعطون حجمًا خاطئًا في OpenableColumns.SIZE، لذلك ننسخ المصدر أولًا
+     * إلى ملف في cacheDir ونرفع هذا الملف بطوله الحقيقي. ملفات file:// تُرفع مباشرة.
+     * [size] يُبقى للتوافق فقط ولا يُعتمد عليه.
+     */
+    @Suppress("UNUSED_PARAMETER")
     suspend fun uploadStream(
         context: Context,
         supabase: SupabaseClient,
@@ -52,20 +60,44 @@ object R2Uploader {
         contentType: String,
         uri: Uri,
         size: Long,
+        fileName: String? = null,
+        onSized: ((Long) -> Unit)? = null,
         onProgress: ((Float) -> Unit)? = null
-    ): String = send(supabase, chatId, scope, kind, contentType, size) { out ->
-        val input = context.contentResolver.openInputStream(uri)
-            ?: throw LocalMediaException("تعذّر قراءة الملف")
-        input.use { src ->
-            val buf = ByteArray(65536)
-            var sent = 0L
-            while (true) {
-                val n = src.read(buf)
-                if (n <= 0) break
-                out.write(buf, 0, n)
-                sent += n
-                if (size > 0) onProgress?.invoke(sent.toFloat() / size)
+    ): String {
+        var temp: File? = null
+        try {
+            val file: File = withContext(Dispatchers.IO) {
+                val path = uri.path
+                if (uri.scheme == "file" && path != null) {
+                    File(path)
+                } else {
+                    val t = File.createTempFile("upl_", ".tmp", context.cacheDir)
+                    temp = t
+                    val input = context.contentResolver.openInputStream(uri)
+                        ?: throw LocalMediaException("تعذّر قراءة الملف")
+                    input.use { src -> t.outputStream().use { dst -> src.copyTo(dst) } }
+                    t
+                }
             }
+            val real = file.length()
+            if (real <= 0L) throw LocalMediaException("الملف فارغ أو تعذّرت قراءته")
+            onSized?.invoke(real)
+            return send(supabase, chatId, scope, kind, contentType, real, fileName) { out ->
+                file.inputStream().use { src ->
+                    val buf = ByteArray(65536)
+                    var sent = 0L
+                    while (true) {
+                        val n = src.read(buf)
+                        if (n <= 0) break
+                        out.write(buf, 0, n)
+                        sent += n
+                        onProgress?.invoke(sent.toFloat() / real)
+                    }
+                    if (sent != real) throw IOException("حجم الملف تغيّر أثناء الرفع")
+                }
+            }
+        } finally {
+            try { temp?.delete() } catch (_: Exception) {}
         }
     }
 
@@ -76,10 +108,12 @@ object R2Uploader {
         kind: String,
         contentType: String,
         size: Long,
+        fileName: String?,
         write: (OutputStream) -> Unit
     ): String = withContext(Dispatchers.IO) {
         val base = BuildConfig.MEDIA_WORKER_URL.trim().trimEnd('/')
-        val endpoint = "$base/upload?scope=${enc(scope)}&chat=${enc(chatId)}&kind=${enc(kind)}"
+        val nameParam = fileName?.takeIf { it.isNotBlank() }?.let { "&name=${enc(it.take(180))}" } ?: ""
+        val endpoint = "$base/upload?scope=${enc(scope)}&chat=${enc(chatId)}&kind=${enc(kind)}$nameParam"
         var token = supabase.auth.currentAccessTokenOrNull()
             ?: throw IOException("لا توجد جلسة دخول")
 

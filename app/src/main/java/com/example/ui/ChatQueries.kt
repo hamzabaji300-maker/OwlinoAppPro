@@ -37,7 +37,10 @@ data class MessageInsert(
     val thumbnail_url: String? = null,
     val reply_to_id: String? = null,
     val media_aspect_ratio: Float? = null,
-    val media_group_id: String? = null
+    val media_group_id: String? = null,
+    val media_file_name: String? = null,
+    val media_file_size: Long? = null,
+    val media_mime_type: String? = null
 )
 
 /** نفس MessageInsert لكن بمعرّف يولّده التطبيق (يمنع تكرار الرسالة عند إعادة المحاولة). */
@@ -52,7 +55,10 @@ data class MessageInsertWithId(
     val thumbnail_url: String? = null,
     val reply_to_id: String? = null,
     val media_aspect_ratio: Float? = null,
-    val media_group_id: String? = null
+    val media_group_id: String? = null,
+    val media_file_name: String? = null,
+    val media_file_size: Long? = null,
+    val media_mime_type: String? = null
 )
 
 @Serializable
@@ -68,7 +74,10 @@ data class MessageRow(
     val created_at: String,
     val media_aspect_ratio: Float? = null,
     val media_group_id: String? = null,
-    val edited_at: String? = null
+    val edited_at: String? = null,
+    val media_file_name: String? = null,
+    val media_file_size: Long? = null,
+    val media_mime_type: String? = null
 )
 
 @Serializable

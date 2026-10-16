@@ -148,6 +148,16 @@ object MediaStorage {
         }
     }
 
+    /** اسم الملف من ترويسة Content-Disposition (يدعم filename*=UTF-8'' و filename=). */
+    fun nameFromDisposition(cd: String?): String? {
+        if (cd.isNullOrBlank()) return null
+        Regex("filename\\*\\s*=\\s*UTF-8''([^;]+)", RegexOption.IGNORE_CASE).find(cd)?.groupValues?.get(1)?.let {
+            return try { java.net.URLDecoder.decode(it.trim().replace("+", "%2B"), "UTF-8") } catch (e: Exception) { it }
+        }
+        Regex("filename\\s*=\\s*\"?([^\";]+)\"?", RegexOption.IGNORE_CASE).find(cd)?.groupValues?.get(1)?.let { return it.trim() }
+        return null
+    }
+
     fun openRemote(context: Context, url: String, mime: String) {
         // ملفات R2 تحتاج جلسة المستخدم، والتطبيقات الخارجية لا تستطيع إرسالها: نحمّل أولًا ثم نفتح محليًا
         if (MediaAuth.isWorkerUrl(url)) {
@@ -156,35 +166,64 @@ object MediaStorage {
             Thread {
                 var failure: String? = null
                 var opened: File? = null
+                var openMime = mime
+                var tmp: File? = null
+                var conn: java.net.HttpURLConnection? = null
                 try {
                     val kind = if (mime.startsWith("video")) Kind.VIDEO else Kind.DOCUMENT
                     val dir = dirFor(app, kind)
                     dir.mkdirs()
-                    val ext = if (mime.startsWith("video")) "mp4"
-                        else (MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "bin")
-                    val file = File(dir, "open_" + Integer.toHexString(url.substringBefore('?').hashCode()) + "." + ext)
-                    if (!file.exists() || file.length() == 0L) {
-                        val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
-                            connectTimeout = 15000
-                            readTimeout = 60000
-                        }
-                        MediaAuth.apply(conn, url)
-                        try {
-                            val code = conn.responseCode
-                            if (code == 404 || code == 410) failure = "انتهت صلاحية الملف"
-                            else if (code !in 200..299) failure = "تعذّر فتح الملف"
-                            else conn.inputStream.use { i -> file.outputStream().use { o -> i.copyTo(o) } }
-                        } finally {
-                            conn.disconnect()
+                    val hash = Integer.toHexString(url.substringBefore('?').hashCode())
+                    // نسخة مكتملة من فتح سابق (الملفات الناقصة تبقى .tmp ولا تُعدّ سليمة أبدًا)
+                    val cached = dir.listFiles { f ->
+                        f.isFile && f.name.startsWith("open_$hash.") && !f.name.endsWith(".tmp") && f.length() > 0L
+                    }?.firstOrNull()
+                    if (cached != null) {
+                        opened = cached
+                    } else {
+                        val c = MediaAuth.openAuthorized(url, 15000, 60000)
+                        conn = c
+                        val code = c.responseCode
+                        if (code == 404 || code == 410) failure = "انتهت صلاحية الملف"
+                        else if (code !in 200..299) failure = "تعذّر فتح الملف"
+                        else {
+                            val headerType = c.getHeaderField("Content-Type")?.substringBefore(';')?.trim()?.lowercase()
+                                ?.takeIf { it.isNotEmpty() && it != "application/octet-stream" }
+                            if ((openMime == "*/*" || openMime.isBlank()) && headerType != null) openMime = headerType
+                            val headerExt = nameFromDisposition(c.getHeaderField("Content-Disposition"))
+                                ?.substringAfterLast('.', "")?.takeIf { it.length in 1..5 }?.lowercase()
+                            val ext = if (openMime.startsWith("video")) "mp4"
+                                else headerExt
+                                    ?: MimeTypeMap.getSingleton().getExtensionFromMimeType(openMime)
+                                    ?: "bin"
+                            val file = File(dir, "open_$hash.$ext")
+                            val part = File(dir, file.name + ".tmp")
+                            tmp = part
+                            val expected = c.contentLengthLong
+                            var copied = 0L
+                            c.inputStream.use { i -> part.outputStream().use { o -> copied = i.copyTo(o) } }
+                            if (copied <= 0L || (expected > 0 && copied != expected)) {
+                                // قُطع الاتصال في المنتصف: لا نترك ملفًا ناقصًا
+                                part.delete()
+                                failure = "تعذّر فتح الملف"
+                            } else {
+                                if (!part.renameTo(file)) {
+                                    part.copyTo(file, overwrite = true)
+                                    part.delete()
+                                }
+                                opened = file
+                            }
                         }
                     }
-                    if (failure == null) opened = file
                 } catch (e: Exception) {
+                    try { tmp?.delete() } catch (_: Exception) {}
                     failure = "تعذّر فتح الملف"
+                } finally {
+                    try { conn?.disconnect() } catch (_: Exception) {}
                 }
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     val f = opened
-                    if (f != null) openFile(app, f.absolutePath, mime)
+                    if (f != null) openFile(app, f.absolutePath, openMime)
                     else Toast.makeText(app, failure ?: "تعذّر فتح الملف", Toast.LENGTH_SHORT).show()
                 }
             }.start()

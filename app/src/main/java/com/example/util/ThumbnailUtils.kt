@@ -61,4 +61,44 @@ object ThumbnailUtils {
             null
         }
     }
+
+    /**
+     * مصغّرة JPEG من إطار داخل الفيديو (لفقاعة الفيديو عند المرسل والمستقبل).
+     * حد الـ Worker لنوع thumb هو 1 ميغابايت، لذلك نرجع null إن تجاوزت الناتج 900 كيلوبايت.
+     */
+    fun generateVideoThumbnailBytes(context: Context, uri: Uri, maxEdge: Int = 480): ByteArray? {
+        val r = android.media.MediaMetadataRetriever()
+        return try {
+            r.setDataSource(context, uri)
+            val frame = r.getFrameAtTime(500_000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: r.getFrameAtTime(0) ?: return null
+            // getFrameAtTime يرجع الإطار بعد تطبيق تدوير الفيديو على أغلب الأجهزة (API 28+ دائمًا)،
+            // لكن بعض الأجهزة القديمة ترجعه خام؛ نصلحه فقط إن كان اتجاه الفيديو عموديًا والإطار أفقيًا.
+            val rotation = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                ?.toIntOrNull() ?: 0
+            val rawW = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val rawH = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            val needsFix = android.os.Build.VERSION.SDK_INT < 28 &&
+                (rotation == 90 || rotation == 270) &&
+                rawW > 0 && rawH > 0 && frame.width == rawW && frame.height == rawH && rawW > rawH
+            val oriented = if (needsFix) {
+                val m = android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }
+                android.graphics.Bitmap.createBitmap(frame, 0, 0, frame.width, frame.height, m, true)
+            } else frame
+
+            val scale = maxEdge.toFloat() / maxOf(oriented.width, oriented.height)
+            val bmp = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(
+                oriented,
+                (oriented.width * scale).toInt().coerceAtLeast(1),
+                (oriented.height * scale).toInt().coerceAtLeast(1), true
+            ) else oriented
+            val out = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
+            out.toByteArray().takeIf { it.size in 1..(900 * 1024) }
+        } catch (e: Exception) {
+            null
+        } finally {
+            try { r.release() } catch (_: Exception) {}
+        }
+    }
 }

@@ -122,10 +122,21 @@ class MyApplication : Application(), ImageLoaderFactory {
                 okhttp3.OkHttpClient.Builder()
                     .addInterceptor { chain ->
                         val req = chain.request()
-                        val token = if (com.example.util.MediaAuth.isWorkerUrl(req.url.toString())) com.example.util.MediaAuth.token() else null
-                        chain.proceed(
+                        val isWorker = com.example.util.MediaAuth.isWorkerUrl(req.url.toString())
+                        val token = if (isWorker) com.example.util.MediaAuth.token() else null
+                        val first = chain.proceed(
                             if (token != null) req.newBuilder().header("Authorization", "Bearer $token").build() else req
                         )
+                        // جلسة منتهية: نجدّدها ونعيد الطلب مرة واحدة فقط
+                        if (isWorker && first.code == 401) {
+                            first.close()
+                            val fresh = com.example.util.MediaAuth.refreshTokenBlocking(token)
+                            if (fresh != null) {
+                                chain.proceed(req.newBuilder().header("Authorization", "Bearer $fresh").build())
+                            } else {
+                                chain.proceed(if (token != null) req.newBuilder().header("Authorization", "Bearer $token").build() else req)
+                            }
+                        } else first
                     }
                     .build()
             }
@@ -147,6 +158,8 @@ class MyApplication : Application(), ImageLoaderFactory {
                 } else {
                     add(coil.decode.GifDecoder.Factory())
                 }
+                // عرض إطار من ملف فيديو محلي أو content://
+                add(coil.decode.VideoFrameDecoder.Factory())
                 // مفتاح كاش ثابت لروابط Supabase (توقيع/توكن يتغير) ليبقى الأفاتار متاحاً بدون إنترنت
                 add(coil.key.Keyer<android.net.Uri> { data, _ ->
                     if (data.host?.contains("supabase") == true && data.path != null)

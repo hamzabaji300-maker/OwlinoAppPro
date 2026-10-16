@@ -12,6 +12,7 @@ import com.example.util.LocalMediaException
 import com.example.util.MediaUploader
 import com.example.util.NetworkUtils
 import com.example.util.UploadLimitException
+import com.example.cache.insertMerged
 import com.example.ui.MessageInsert
 import com.example.ui.MessageRow
 import io.github.jan.supabase.postgrest.postgrest
@@ -52,6 +53,8 @@ class PendingMessageWorker(
                     var finalMediaUrl: String? = null
                     var bucketName: String? = null
                     var path: String? = null
+                    var thumbUrl: String? = null
+                    var uploadedSize: Long? = null
 
                     // If it's an attachment and not yet uploaded (local URI: content:// or file://)
                     if (msg.media_url != null && (msg.media_url.startsWith("content://") || msg.media_url.startsWith("file://"))) {
@@ -86,7 +89,22 @@ class PendingMessageWorker(
                                 upsert = true,
                                 chatId = msg.chat_id,
                                 scope = uploadScope,
-                                messageId = msg.id
+                                messageId = msg.id,
+                                fileName = msg.file_name,
+                                mimeType = msg.mime_type
+                            )
+                            uploadedSize = MediaUploader.takeUploadedSize(msg.id)
+                            // مصغّرة للصورة/الفيديو (فشلها لا يوقف الإرسال)، تُولّد من الملف المحلي الأصلي
+                            thumbUrl = MediaUploader.generateAndUploadThumbnail(
+                                context = context,
+                                supabase = supabase,
+                                bucketName = bucketName,
+                                chatId = msg.chat_id,
+                                userId = msg.sender_id,
+                                scope = uploadScope,
+                                uri = uri,
+                                type = attachType,
+                                baseName = fileName
                             )
                         } catch (e: UploadLimitException) {
                             messageDao.updateMessageStatus(msg.id, "FAILED")
@@ -107,9 +125,13 @@ class PendingMessageWorker(
                         content = msg.content,
                         message_type = msg.message_type,
                         media_url = finalMediaUrl ?: msg.media_url,
+                        thumbnail_url = thumbUrl ?: msg.thumbnail_url,
                         reply_to_id = msg.reply_to_id,
                         media_aspect_ratio = msg.media_aspect_ratio,
-                        media_group_id = msg.media_group_id
+                        media_group_id = msg.media_group_id,
+                        media_file_name = if (msg.message_type == "file") msg.file_name else null,
+                        media_file_size = uploadedSize ?: msg.file_size,
+                        media_mime_type = msg.mime_type
                     )
 
                     // نفس معرّف الرسالة المؤقتة: لو وصلت سابقًا لا تتكرر
@@ -120,7 +142,7 @@ class PendingMessageWorker(
                         // نخبر الشاشة المفتوحة (إن وُجدت) أن النسخة المؤقتة استُبدلت، حتى لا تظهر مرتين
                         com.example.AppState.messageReplaced.tryEmit(msg.id)
                     }
-                    messageDao.insertCachedMessage(
+                    messageDao.insertMerged(
                         com.example.cache.CachedMessage(
                             id = result.id,
                             chat_id = result.chat_id,
@@ -130,6 +152,10 @@ class PendingMessageWorker(
                             status = "SENT",
                             message_type = result.message_type,
                             media_url = result.media_url,
+                            thumbnail_url = result.thumbnail_url ?: thumbUrl,
+                            file_size = result.media_file_size ?: uploadedSize ?: msg.file_size,
+                            file_name = result.media_file_name ?: msg.file_name,
+                            mime_type = result.media_mime_type ?: msg.mime_type,
                             reply_to_id = result.reply_to_id,
                             media_aspect_ratio = result.media_aspect_ratio,
                             media_group_id = result.media_group_id

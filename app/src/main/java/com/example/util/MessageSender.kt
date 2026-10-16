@@ -67,6 +67,9 @@ object MessageSender {
         thumbnail_url = thumbnail_url,
         reply_to_id = reply_to_id,
         media_aspect_ratio = media_aspect_ratio,
-        media_group_id = media_group_id
+        media_group_id = media_group_id,
+        media_file_name = media_file_name,
+        media_file_size = media_file_size,
+        media_mime_type = media_mime_type
     )
 }

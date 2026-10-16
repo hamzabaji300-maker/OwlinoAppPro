@@ -564,7 +564,10 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
                                    thumbnail_url = it.thumbnail_url,
                                    reply_to_id = it.reply_to_id,
                                    media_aspect_ratio = it.media_aspect_ratio,
-                                   media_group_id = it.media_group_id
+                                   media_group_id = it.media_group_id,
+                                    file_size = it.media_file_size,
+                                    file_name = it.media_file_name,
+                                    mime_type = it.media_mime_type
                                )
                             }
                             // Preload all messages into cache so ChatDetailScreen is instant

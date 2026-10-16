@@ -121,24 +121,43 @@ fun DownloadableImage(
         }
         if (!expired && (localPath != null || isMe || isLocalUri || isDirectRemote)) {
             // Real picture
-            val model: Any = if (localPath != null) {
-                File(localPath)
-            } else if (isDirectRemote) {
-                att.url
-            } else {
-                rememberMediaSource(context, att.messageId, att.thumbnailUrl ?: att.url, isThumbnail = att.thumbnailUrl != null)
+            // مهم: لا نمرّر أبدًا رابط فيديو بعيدًا لـ Coil كصورة (يفشل فكّه فيبقى لون الفقاعة فقط)
+            val model: Any = when {
+                localPath != null -> File(localPath) // ملف محلي: VideoFrameDecoder يعرض إطارًا من الفيديو
+                isDirectRemote -> att.url
+                isVideo && att.thumbnailUrl != null ->
+                    rememberMediaSource(context, att.messageId, att.thumbnailUrl!!, isThumbnail = true)
+                isVideo && isLocalUri -> {
+                    // أثناء الرفع: ملف/محتوى محلي، نمرّره ككائن مباشر ليتعرف عليه Coil كفيديو
+                    val parsed = android.net.Uri.parse(att.url)
+                    if (parsed.scheme == "file" && parsed.path != null) File(parsed.path!!) else parsed
+                }
+                isVideo -> "" // رسائل قديمة بلا مصغّرة: خلفية داكنة + زر تشغيل فقط
+                else -> rememberMediaSource(context, att.messageId, att.thumbnailUrl ?: att.url, isThumbnail = att.thumbnailUrl != null)
             }
-            coil.compose.AsyncImage(
-                model = coil.request.ImageRequest.Builder(context)
-                    .data(model)
-                    .memoryCacheKey("media_" + att.messageId + if (localPath != null) "_l" else "_r")
-                    .crossfade(false)
-                    .build(),
-                placeholder = androidx.compose.ui.graphics.painter.ColorPainter(Color.Black.copy(alpha = 0.12f)),
-                contentDescription = null,
-                contentScale = contentScale,
-                modifier = Modifier.fillMaxSize().clickable { onOpen() }
-            )
+            if (model is String && model.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color(0xFF2B2F36)).clickable { onOpen() }
+                )
+            } else {
+                coil.compose.AsyncImage(
+                    model = coil.request.ImageRequest.Builder(context)
+                        .data(model)
+                        .memoryCacheKey("media_" + att.messageId + if (localPath != null) "_l" else "_r")
+                        .apply {
+                            // إطار بعد نصف ثانية بدل الأول (غالبًا أسود)؛ مفتاح coil-video الرسمي
+                            if (isVideo && (model is File || model is android.net.Uri)) {
+                                setParameter("coil#video_frame_micros", 500_000L)
+                            }
+                        }
+                        .crossfade(false)
+                        .build(),
+                    placeholder = androidx.compose.ui.graphics.painter.ColorPainter(Color.Black.copy(alpha = 0.12f)),
+                    contentDescription = null,
+                    contentScale = contentScale,
+                    modifier = Modifier.fillMaxSize().clickable { onOpen() }
+                )
+            }
             if (isVideo) {
                 Box(
                     modifier = Modifier.align(Alignment.Center).size(48.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)),

@@ -608,7 +608,7 @@ mutableStateOf<io.github.jan.supabase.realtime.RealtimeChannel?>(null) }
                         "voice" -> AttachmentType.VOICE
                         else -> AttachmentType.DOCUMENT
                     }
-                    listOf(Attachment(messageId = it.id, type = type, url = it.media_url, thumbnailUrl = it.thumbnail_url, aspectRatio = it.media_aspect_ratio))
+                    listOf(Attachment(messageId = it.id, type = type, url = it.media_url, thumbnailUrl = it.thumbnail_url, aspectRatio = it.media_aspect_ratio, fileName = it.file_name, fileSize = it.file_size, mimeType = it.mime_type))
                 } else {
                     emptyList()
                 }
@@ -879,7 +879,7 @@ currentUserId) } }.decodeSingleOrNull<Profile>()
                 "voice" -> AttachmentType.VOICE
                 else -> AttachmentType.DOCUMENT
             }
-            listOf(Attachment(messageId = row.id, type = type, url = row.media_url, thumbnailUrl = row.thumbnail_url, aspectRatio = row.media_aspect_ratio))
+            listOf(Attachment(messageId = row.id, type = type, url = row.media_url, thumbnailUrl = row.thumbnail_url, aspectRatio = row.media_aspect_ratio, fileName = row.media_file_name, fileSize = row.media_file_size, mimeType = row.media_mime_type))
          } else {
             emptyList()
          }
@@ -959,7 +959,10 @@ currentUserId) } }.decodeSingleOrNull<Profile>()
                 media_aspect_ratio = remoteMsg?.media_aspect_ratio,
                 media_group_id = remoteMsg?.media_group_id,
                 edited_at = remoteMsg?.edited_at,
-                reactions = ChatLocalStore.encodeReactions(msg.reactions)
+                reactions = ChatLocalStore.encodeReactions(msg.reactions),
+                 file_size = remoteMsg?.media_file_size,
+                 file_name = remoteMsg?.media_file_name,
+                 mime_type = remoteMsg?.media_mime_type
              )
           }
           cachedMessageDao.insertMergedAll(toCache)
@@ -1142,7 +1145,7 @@ record.message_type != null) {
                            else -> AttachmentType.DOCUMENT
                        }
                        listOf(Attachment(messageId = record.id, type = type, url =
-record.media_url, thumbnailUrl = record.thumbnail_url, aspectRatio = record.media_aspect_ratio))
+record.media_url, thumbnailUrl = record.thumbnail_url, aspectRatio = record.media_aspect_ratio, fileName = record.media_file_name, fileSize = record.media_file_size, mimeType = record.media_mime_type))
                     } else {
                        emptyList()
                     }
@@ -1212,7 +1215,10 @@ record.reply_to_id } else null
                                 reply_to_id = record.reply_to_id,
                                 media_aspect_ratio = record.media_aspect_ratio,
                                 media_group_id = record.media_group_id,
-                                edited_at = record.edited_at
+                                edited_at = record.edited_at,
+                                 file_size = record.media_file_size,
+                                 file_name = record.media_file_name,
+                                 mime_type = record.media_mime_type
                                )
                             )
                          } catch(e: Exception) {}
@@ -2326,6 +2332,9 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                         if (type == AttachmentType.IMAGE) {
                             // النسبة بعد تطبيق اتجاه EXIF حتى لا تُعرض صور الكاميرا العمودية بنسبة خاطئة
                             calculatedRatio = com.example.util.MediaUploader.displayAspectRatio(context, uri)
+                        } else if (type == AttachmentType.VIDEO) {
+                            // نسبة الفيديو الحقيقية (العمودي يبقى عموديًا في الفقاعة)
+                            calculatedRatio = com.example.util.MediaUploader.videoAspectRatio(context, uri)
                         } else if (type == AttachmentType.VOICE) {
                             // نستخرج مدة التسجيل (مللي) من اسم الملف ونخزّنها بالثواني في حقل النسبة
                             // (media_aspect_ratio) لأنه غير مستخدم أصلًا للصوت، فنتفادى تعديل قاعدة البيانات.
@@ -2354,7 +2363,8 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
 
                         val docFileName = docMetaByUri?.get(uri)?.first
                         val docFileSize = docMetaByUri?.get(uri)?.second
-                        val tempAttachment = Attachment(messageId = tempId, type = type, url = localUriStr, aspectRatio = calculatedRatio, fileName = docFileName, fileSize = docFileSize)
+                        val docMime = if (type == AttachmentType.DOCUMENT) com.example.util.MediaUploader.guessMime(context, uri, docFileName) else null
+                        val tempAttachment = Attachment(messageId = tempId, type = type, url = localUriStr, aspectRatio = calculatedRatio, fileName = docFileName, fileSize = docFileSize, mimeType = docMime)
                         val tempMsg = MessageModel(
                             id = tempId,
                             text = if (__idx == 0) firstText else textStr,
@@ -2411,6 +2421,9 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                                         media_url = pair.second.toString(),
                                         reply_to_id = replyingTo?.id,
                                         media_aspect_ratio = pair.first.attachments.firstOrNull()?.aspectRatio,
+                                        file_size = pair.first.attachments.firstOrNull()?.fileSize,
+                                        file_name = pair.first.attachments.firstOrNull()?.fileName,
+                                        mime_type = pair.first.attachments.firstOrNull()?.mimeType,
                                         media_group_id = batchId
                                     )
                                 )
@@ -2425,6 +2438,7 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                         launch(kotlinx.coroutines.Dispatchers.IO) {
                             try {
                                 val calculatedRatio = tempMsg.attachments.firstOrNull()?.aspectRatio
+                                val tmpAtt = tempMsg.attachments.firstOrNull()
                                 val fileName = java.util.UUID.randomUUID().toString() + "-" +System.currentTimeMillis()
                                 val path = "$chatId/$myUserId/$fileName"
                                 run {
@@ -2437,15 +2451,20 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                                         type = type,
                                         chatId = chatId,
                                         scope = uploadScope,
-                                        messageId = tempMsg.id
+                                        messageId = tempMsg.id,
+                                        fileName = tmpAtt?.fileName,
+                                        mimeType = tmpAtt?.mimeType
                                     )
 
                                     // نولّد ونرفع نسخة صغيرة مضغوطة (للصور بس) — هذا اللي يخلي
                                     // العرض داخل الدردشة سريع (كيما تيليجرام)، بدل تحميل الصورة الكاملة كل مرة
                                     var thumbnailSignedUrl: String? = null
-                                    if (type == AttachmentType.IMAGE) {
+                                    if (type == AttachmentType.IMAGE || type == AttachmentType.VIDEO) {
                                         try {
-                                            val thumbBytes = com.example.util.ThumbnailUtils.generateThumbnailBytes(context, uri)
+                                            // يُولّد من uri الأصلي قبل حذف أي ملف مؤقت مضغوط
+                                            val thumbBytes = if (type == AttachmentType.VIDEO)
+                                                com.example.util.ThumbnailUtils.generateVideoThumbnailBytes(context, uri)
+                                            else com.example.util.ThumbnailUtils.generateThumbnailBytes(context, uri)
                                             if (thumbBytes != null) {
                                                 if (com.example.util.R2Uploader.isConfigured) {
                                                     thumbnailSignedUrl = com.example.util.R2Uploader.uploadBytes(
@@ -2462,6 +2481,8 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                                         }
                                     }
 
+                                    // الحجم الفعلي المرفوع (بعد الضغط) يذهب مع الرسالة ليراه المستقبل
+                                    val sentSize = com.example.util.MediaUploader.takeUploadedSize(tempMsg.id) ?: tmpAtt?.fileSize
                                     val insertData = MessageInsert(
                                         chat_id = chatId,
                                         sender_id = myUserId ?: "",
@@ -2471,15 +2492,17 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                                         thumbnail_url = thumbnailSignedUrl,
                                         reply_to_id = replyingTo?.id,
                                         media_aspect_ratio = calculatedRatio,
-                                        media_group_id = batchId
+                                        media_group_id = batchId,
+                                        media_file_name = if (type == AttachmentType.DOCUMENT) tmpAtt?.fileName else null,
+                                        media_file_size = sentSize,
+                                        media_mime_type = tmpAtt?.mimeType
                                     )
                                     val result = com.example.util.MessageSender.insert(com.example.supabase, insertData, tempMsg.id)
                                     
                                     val timeStr = formatTimeSafe(result.created_at)
                                     // نخفي النسخة المؤقتة فورًا حتى لا يعيدها أي دمج قديم فيظهر المرفق مرتين
                                     if (result.id != tempMsg.id) deletedMessageIds.add(tempMsg.id)
-                                    val docMeta = docMetaByUri?.get(uri)
-                                    val attachment = Attachment(messageId = result.id, type = type, url = signedUrl, thumbnailUrl = result.thumbnail_url, aspectRatio = calculatedRatio, fileName = docMeta?.first, fileSize = docMeta?.second)
+                                    val attachment = Attachment(messageId = result.id, type = type, url = signedUrl, thumbnailUrl = result.thumbnail_url, aspectRatio = calculatedRatio, fileName = tmpAtt?.fileName, fileSize = sentSize ?: tmpAtt?.fileSize, mimeType = tmpAtt?.mimeType)
                                     try {
                                         cachedMessageDao.insertMerged(
                                             com.example.cache.CachedMessage(
@@ -2494,7 +2517,10 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                                                 thumbnail_url = result.thumbnail_url,
                                                 reply_to_id = result.reply_to_id,
                                                 media_aspect_ratio = calculatedRatio,
-                                                media_group_id = result.media_group_id
+                                                media_group_id = result.media_group_id,
+                                                file_size = sentSize ?: tmpAtt?.fileSize,
+                                                file_name = tmpAtt?.fileName,
+                                                mime_type = tmpAtt?.mimeType
                                             )
                                         )
                                         if (result.id != tempMsg.id) cachedMessageDao.deleteMessageById(tempMsg.id)

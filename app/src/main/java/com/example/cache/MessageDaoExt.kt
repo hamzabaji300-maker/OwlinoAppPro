@@ -13,6 +13,8 @@ private fun CachedMessage.mergedWith(old: CachedMessage?): CachedMessage {
         media_group_id = media_group_id ?: old.media_group_id,
         edited_at = edited_at ?: old.edited_at,
         file_size = file_size ?: old.file_size,
+        file_name = file_name ?: old.file_name,
+        mime_type = mime_type ?: old.mime_type,
         duration_ms = duration_ms ?: old.duration_ms,
         link_url = link_url ?: old.link_url,
         link_title = link_title ?: old.link_title,

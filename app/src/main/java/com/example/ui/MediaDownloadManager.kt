@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.content.Context
 import android.util.Log
+import com.example.util.MediaAuth
 import com.example.util.MediaStorage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -49,9 +50,28 @@ object MediaDownloadManager {
         AttachmentType.DOCUMENT -> MediaStorage.Kind.DOCUMENT
     }
 
-    private fun extFor(att: Attachment): String {
+    /** اسم الملف من ترويسة Content-Disposition (يدعم filename*=UTF-8'' و filename=). */
+    private fun nameFromDisposition(cd: String?): String? {
+        if (cd.isNullOrBlank()) return null
+        Regex("filename\\*\\s*=\\s*UTF-8''([^;]+)", RegexOption.IGNORE_CASE).find(cd)?.groupValues?.get(1)?.let {
+            return try { java.net.URLDecoder.decode(it.trim().replace("+", "%2B"), "UTF-8") } catch (e: Exception) { it }
+        }
+        Regex("filename\\s*=\\s*\"?([^\";]+)\"?", RegexOption.IGNORE_CASE).find(cd)?.groupValues?.get(1)?.let { return it.trim() }
+        return null
+    }
+
+    private fun cleanMime(raw: String?): String? =
+        raw?.substringBefore(';')?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && it != "application/octet-stream" }
+
+    /** الامتداد الأنسب: اسم الرسالة، ثم الترويسات، ثم النوع، ثم الرابط، و bin آخر خيار. */
+    private fun extFor(att: Attachment, headerName: String?, headerType: String?): String {
         att.fileName?.substringAfterLast('.', "")?.takeIf { it.length in 1..5 }?.let { return it.lowercase() }
-        att.url.substringBefore('?').substringAfterLast('.', "").takeIf { it.length in 2..4 }?.let { return it.lowercase() }
+        headerName?.substringAfterLast('.', "")?.takeIf { it.length in 1..5 }?.let { return it.lowercase() }
+        val mime = cleanMime(att.mimeType) ?: cleanMime(headerType)
+        mime?.let { m ->
+            android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(m)?.takeIf { it.isNotEmpty() }?.let { return it.lowercase() }
+        }
+        att.url.substringBefore('?').substringAfterLast('.', "").takeIf { it.length in 2..4 && !it.equals("bin", true) }?.let { return it.lowercase() }
         return when (att.type) {
             AttachmentType.IMAGE -> "jpg"
             AttachmentType.VIDEO -> "mp4"
@@ -71,32 +91,34 @@ object MediaDownloadManager {
         setState(id, MediaDlState.Downloading(0f, 0L, att.fileSize ?: 0L))
         jobs[id] = scope.launch {
             var tmp: File? = null
+            var conn: HttpURLConnection? = null
             try {
                 MediaStorage.ensureFolders(app)
                 val dir = MediaStorage.dirFor(app, kindFor(att.type))
                 dir.mkdirs()
-                val target = File(dir, MediaStorage.fileNameFor(id, extFor(att)))
-                val tmpFile = File(dir, target.name + ".tmp")
-                tmp = tmpFile
 
-                val conn = (URL(att.url).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                    instanceFollowRedirects = true
-                }
-                com.example.util.MediaAuth.apply(conn, att.url)
-                conn.connect()
-                val code = conn.responseCode
+                // يجدّد الجلسة تلقائيًا مرة واحدة عند 401 (تطبيق بقي في الخلفية فانتهى التوكن)
+                val c = MediaAuth.openAuthorized(att.url)
+                conn = c
+                val code = c.responseCode
                 // 404 أو 410: الملف حُذف من الخادم (انتهت مدته)
                 if (code == 404 || code == 410) throw IOException("expired")
                 if (code == 401 || code == 403) throw IOException("forbidden")
                 if (code !in 200..299) throw IOException("HTTP " + code)
-                val total = conn.contentLengthLong.takeIf { it > 0 } ?: (att.fileSize ?: 0L)
 
-                conn.inputStream.use { input ->
+                val headerName = nameFromDisposition(c.getHeaderField("Content-Disposition"))
+                val headerType = c.getHeaderField("Content-Type")
+                val target = File(dir, MediaStorage.fileNameFor(id, extFor(att, headerName, headerType)))
+                val tmpFile = File(dir, target.name + ".tmp")
+                tmp = tmpFile
+                // الطول المعلن من الخادم فقط هو المرجع للتحقق (حجم الرسالة قد يكون تقريبيًا)
+                val serverLen = c.contentLengthLong.takeIf { it > 0 } ?: -1L
+                val total = if (serverLen > 0) serverLen else (att.fileSize ?: 0L)
+
+                var done = 0L
+                c.inputStream.use { input ->
                     tmpFile.outputStream().use { out ->
                         val buf = ByteArray(64 * 1024)
-                        var done = 0L
                         var lastEmit = 0L
                         while (true) {
                             val read = input.read(buf)
@@ -107,10 +129,14 @@ object MediaDownloadManager {
                             val now = System.currentTimeMillis()
                             if (now - lastEmit > 100) {
                                 lastEmit = now
-                                setState(id, MediaDlState.Downloading(if (total > 0) done.toFloat() / total else 0f, done, total))
+                                setState(id, MediaDlState.Downloading(if (total > 0) (done.toFloat() / total).coerceAtMost(1f) else 0f, done, total))
                             }
                         }
                     }
+                }
+                // تنزيل مقطوع أو فارغ لا يُعدّ سليمًا أبدًا
+                if (done <= 0L || (serverLen > 0 && done != serverLen)) {
+                    throw IOException("incomplete")
                 }
                 if (!tmpFile.renameTo(target)) {
                     tmpFile.copyTo(target, overwrite = true)
@@ -128,6 +154,7 @@ object MediaDownloadManager {
                 tmp?.delete()
                 setState(id, MediaDlState.Failed(e.message ?: "error"))
             } finally {
+                try { conn?.disconnect() } catch (_: Exception) {}
                 jobs.remove(id)
             }
         }

@@ -60,6 +60,8 @@ class ChatLocalStore(private val context: Context) {
                     thumbnailUrl = thumbnail_url,
                     aspectRatio = media_aspect_ratio,
                     fileSize = file_size,
+                    fileName = file_name,
+                    mimeType = mime_type,
                     durationMs = duration_ms
                 )
             )
@@ -118,6 +120,8 @@ private fun mergeAttachments(cur: List<Attachment>, db: List<Attachment>): List<
             thumbnailUrl = c.thumbnailUrl ?: d.thumbnailUrl,
             aspectRatio = c.aspectRatio ?: d.aspectRatio,
             fileSize = c.fileSize ?: d.fileSize,
+            fileName = c.fileName ?: d.fileName,
+            mimeType = c.mimeType ?: d.mimeType,
             durationMs = c.durationMs ?: d.durationMs
         )
     }
