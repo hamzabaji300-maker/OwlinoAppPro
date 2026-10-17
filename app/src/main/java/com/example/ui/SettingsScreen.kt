@@ -57,6 +57,8 @@ fun SettingsScreen(
     onSecurityClick: () -> Unit = {},
     onNotificationsClick: () -> Unit = {},
     onPowerUsageClick: () -> Unit = {},
+    onSendReceiveClick: () -> Unit = {},
+    onNearbyClick: () -> Unit = {},
     onAppearanceClick: () -> Unit = {},
     onSocialLinksClick: () -> Unit = {},
     onOwlinoFeatherClick: () -> Unit = {},
@@ -360,6 +362,8 @@ fun SettingsScreen(
                     SItem(Lucide.Bell, com.example.ui.i18n.LocalTranslation.current.notifications, com.example.ui.i18n.LocalTranslation.current.alertsSoundsMentions, SettingsColors.textSecondary, onClick = onNotificationsClick),
                     SItem(Lucide.MessageSquare, com.example.ui.i18n.LocalTranslation.current.chats, com.example.ui.i18n.LocalTranslation.current.autoDownloadComposer, SettingsColors.textSecondary, onClick = onChatWallpapersClick),
                     SItem(Lucide.Palette, com.example.ui.i18n.LocalTranslation.current.appearance, com.example.ui.i18n.LocalTranslation.current.changeColorsUiThemes, SettingsColors.textSecondary, onClick = onAppearanceClick),
+                    SItem(Lucide.Zap, com.example.ui.SendReceiveStrings.title(), com.example.ui.SendReceiveStrings.subtitle(), SettingsColors.textSecondary, onClick = onSendReceiveClick),
+                    SItem(Lucide.Smartphone, com.example.ui.NearbyStrings.title(), com.example.ui.NearbyStrings.subtitle(), SettingsColors.textSecondary, onClick = onNearbyClick),
                     SItem(Lucide.Database, com.example.ui.i18n.LocalTranslation.current.storageAndData, com.example.ui.i18n.LocalTranslation.current.storageUsage, SettingsColors.textSecondary, onClick = onStorageClick),
                     SItem(Lucide.BatteryCharging, com.example.ui.i18n.LocalTranslation.current.powerUsage, com.example.ui.i18n.LocalTranslation.current.batteryAnimations, SettingsColors.textSecondary, onClick = onPowerUsageClick)
                 ),

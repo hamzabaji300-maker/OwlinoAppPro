@@ -23,9 +23,10 @@ import kotlin.time.Duration.Companion.days
  */
 object MediaUploader {
 
-    private const val MAX_IMAGE_EDGE = 1600
+    // جودة الصور وأطول ضلع تتبعان إعدادات «الإرسال والاستقبال»
+    private val MAX_IMAGE_EDGE: Int get() = SendReceivePrefs.maxImageEdge
     private const val SKIP_COMPRESS_BELOW = 300 * 1024L
-    private const val JPEG_QUALITY = 80
+    private val JPEG_QUALITY: Int get() = SendReceivePrefs.jpegQuality
 
     // الحجم النهائي الذي رُفع فعلًا (بعد الضغط) لكل رسالة، لإرساله للمستقبل مع الرسالة
     private val uploadedSizes = java.util.concurrent.ConcurrentHashMap<String, Long>()

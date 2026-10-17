@@ -447,7 +447,9 @@ fun HooXApp(intent: android.content.Intent?) {
     }
     
     LaunchedEffect(sessionStatus) {
-        if ((sessionStatus is SessionStatus.NotAuthenticated || sessionStatus is SessionStatus.RefreshFailure) && hasLoggedIn) {
+        // RefreshFailure = تعذّر تجديد الجلسة (غالبًا لا إنترنت) وليس تسجيل خروج: نبقى داخل التطبيق بالبيانات المحفوظة.
+        // وحتى NotAuthenticated لا نعتمده بلا إنترنت، حتى لا يُمسح الحساب ويُفتح تسجيل الدخول بسبب انقطاع الشبكة فقط.
+        if (sessionStatus is SessionStatus.NotAuthenticated && hasLoggedIn && com.example.util.NetworkUtils.isOnline(context)) {
             com.example.ui.BlockManager.clear()
             com.example.ui.ChatStateManager.clear()
             com.example.ui.FollowGraphManager.clear()
@@ -457,6 +459,24 @@ fun HooXApp(intent: android.content.Intent?) {
             navController.navigate("signIn") { popUpTo(0) }
         } else if (sessionStatus is SessionStatus.Authenticated && !hasLoggedIn) {
             prefs.edit().putBoolean("has_logged_in", true).apply()
+        }
+    }
+
+    // فشل تجديد الجلسة (بلا إنترنت): نعيد المحاولة تلقائيًا فور عودة الشبكة، فتتحدث الحساب بصمت دون تسجيل دخول
+    LaunchedEffect(sessionStatus) {
+        if (sessionStatus is SessionStatus.RefreshFailure) {
+            while (true) {
+                kotlinx.coroutines.delay(4000)
+                if (com.example.util.NetworkUtils.isOnline(context)) {
+                    try {
+                        supabase.auth.refreshCurrentSession()
+                        break
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                    }
+                }
+            }
         }
     }
 
@@ -630,6 +650,8 @@ fun HooXApp(intent: android.content.Intent?) {
                     onLinkedDevicesClick = { navController.navigate("linkedDevices") },
                     onChatWallpapersClick = { navController.navigate("chatWallpapers") },
                     onStorageClick = { navController.navigate("storageSettings") },
+                    onSendReceiveClick = { navController.navigate("sendReceiveSettings") },
+                    onNearbyClick = { navController.navigate("nearbyShare") },
                     onSecurityClick = { navController.navigate("securitySettings") },
                     onNotificationsClick = { navController.navigate("notificationsSettings") },
                     onPowerUsageClick = { navController.navigate("powerUsage") },
@@ -821,6 +843,58 @@ fun HooXApp(intent: android.content.Intent?) {
         )
     }
 ) { com.example.ui.StorageSettingsScreen(onBack = { navController.popBackStack() }) }
+            composable("sendReceiveSettings",
+    enterTransition = {
+        androidx.compose.animation.slideInHorizontally(
+            initialOffsetX = { it },
+            animationSpec = androidx.compose.animation.core.tween(120, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+        )
+    },
+    exitTransition = {
+        androidx.compose.animation.slideOutHorizontally(
+            targetOffsetX = { -it / 5 },
+            animationSpec = androidx.compose.animation.core.tween(120, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+        )
+    },
+    popEnterTransition = {
+        androidx.compose.animation.slideInHorizontally(
+            initialOffsetX = { -it / 5 },
+            animationSpec = androidx.compose.animation.core.tween(120, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+        )
+    },
+    popExitTransition = {
+        androidx.compose.animation.slideOutHorizontally(
+            targetOffsetX = { it },
+            animationSpec = androidx.compose.animation.core.tween(120, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+        )
+    }
+) { com.example.ui.SendReceiveScreen(onBack = { navController.popBackStack() }, onNearbyClick = { navController.navigate("nearbyShare") }) }
+            composable("nearbyShare",
+    enterTransition = {
+        androidx.compose.animation.slideInHorizontally(
+            initialOffsetX = { it },
+            animationSpec = androidx.compose.animation.core.tween(120, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+        )
+    },
+    exitTransition = {
+        androidx.compose.animation.slideOutHorizontally(
+            targetOffsetX = { -it / 5 },
+            animationSpec = androidx.compose.animation.core.tween(120, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+        )
+    },
+    popEnterTransition = {
+        androidx.compose.animation.slideInHorizontally(
+            initialOffsetX = { -it / 5 },
+            animationSpec = androidx.compose.animation.core.tween(120, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+        )
+    },
+    popExitTransition = {
+        androidx.compose.animation.slideOutHorizontally(
+            targetOffsetX = { it },
+            animationSpec = androidx.compose.animation.core.tween(120, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+        )
+    }
+) { com.example.ui.NearbyShareScreen(onBack = { navController.popBackStack() }) }
             composable("securitySettings",
     enterTransition = {
         androidx.compose.animation.slideInHorizontally(

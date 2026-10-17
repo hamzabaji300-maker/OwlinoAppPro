@@ -1114,11 +1114,11 @@ chatId)
 && it.text == record.content && it.isMine && it.attachments.isEmpty() && record.media_url == null }
                     if (sameIdMsg) {
                         messages = messages.map {
-                            if (it.id == record.id) it.copy(status = MessageStatus.SENT, time = formatTimeSafe(record.created_at)) else it
-                        }
+                            if (it.id == record.id) it.copy(status = MessageStatus.SENT, time = formatTimeSafe(record.created_at), createdAtExact = record.created_at) else it
+                        }.orderedByServerTime()
                     } else if (tempMatch != null) {
                         messages = messages.map { if (it.id == tempMatch.id) it.copy(id =
-record.id, status = MessageStatus.SENT, time = formatTimeSafe(record.created_at)) else it }
+record.id, status = MessageStatus.SENT, time = formatTimeSafe(record.created_at), createdAtExact = record.created_at) else it }.orderedByServerTime()
                     } else {
                         val alreadyExists = messages.any { it.id == record.id }
                         if (!alreadyExists) {
@@ -1562,7 +1562,7 @@ else it
                 messages = if (exists) {
                     messages.filter { it.id != tempId }
                 } else {
-                    messages.map { if (it.id == tempId) it.copy(id = result.id, status = MessageStatus.SENT, time = timeStr) else it }
+                    messages.map { if (it.id == tempId) it.copy(id = result.id, status = MessageStatus.SENT, time = timeStr, createdAtExact = result.created_at) else it }.orderedByServerTime()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -2541,13 +2541,13 @@ androidx.compose.runtime.mutableIntStateOf(messages.size) }
                                     
                                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                         val alreadyExists = messages.any { it.id == result.id && it.id != tempMsg.id }
-                                        messages = if (alreadyExists) {
+                                        messages = (if (alreadyExists) {
                                             messages.filter { it.id != tempMsg.id }
                                         } else {
                                             messages.map {
                                                 if (it.id == tempMsg.id) newMsg else it
                                             }
-                                        }
+                                        }).orderedByServerTime()
                                     }
                                 }
                             } catch(e: Exception) {
@@ -2747,14 +2747,14 @@ java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("H
 
                               val alreadyExists = messages.any { it.id == result.id && it.id !=
 tempId }
-                           messages = if (alreadyExists) {
+                           messages = (if (alreadyExists) {
                               messages.filter { it.id != tempId }
                            } else {
                               messages.map {
                                  if (it.id == tempId) it.copy(id = result.id, status =
-MessageStatus.SENT, time = timeStr) else it
+MessageStatus.SENT, time = timeStr, createdAtExact = result.created_at) else it
                               }
-                           }
+                           }).orderedByServerTime()
                         } catch(e: Exception) {
                            e.printStackTrace()
                            val isNetworkError = com.example.util.NetworkUtils.isNetworkError(context, e)
@@ -2786,7 +2786,17 @@ MessageStatus.SENT, time = timeStr) else it
              onAttachmentSelected = { uris, type ->
                     // الفيديو: نسأل عن الجودة أولًا ثم نرسل. غيره يُرسل مباشرة.
                     if (type == AttachmentType.VIDEO) {
-                        pendingVideoUris = uris
+                        val fixedMode = com.example.util.SendReceivePrefs.videoMode
+                        if (fixedMode == 0) {
+                            pendingVideoUris = uris
+                        } else {
+                            // جودة ثابتة من إعدادات «الإرسال والاستقبال»: نرسل فورًا دون سؤال
+                            com.example.util.VideoQualityPrefs.set(
+                                context,
+                                if (fixedMode == 2) com.example.util.VideoQuality.HIGH else com.example.util.VideoQuality.NORMAL
+                            )
+                            attachmentHandler(uris, type)
+                        }
                     } else {
                         attachmentHandler(uris, type)
                     }
@@ -5168,5 +5178,12 @@ data class UiMessage(
     val isLast: Boolean
 )
 
-
-
+/**
+ * ترتيب الرسائل المؤكَّدة حسب وقت الخادم (created_at) — وهو نفس المرجع الذي تستعمله قائمة المحادثات لآخر رسالة.
+ * قبل هذا كانت رسائلك تبقى في مكان بدء الإرسال (قبل اكتمال الرفع)، فتظهر فوق رسالة وصلتك أثناء الرفع
+ * بينما القائمة تعدّها الأحدث. الرسائل قيد الإرسال (بلا وقت خادم) تبقى في آخر المحادثة بترتيبها.
+ */
+private fun List<MessageModel>.orderedByServerTime(): List<MessageModel> {
+    val keyed = map { m -> m to (m.createdAtExact?.let { parseTimestampSafe(it) } ?: Long.MAX_VALUE) }
+    return keyed.sortedBy { it.second }.map { it.first }
+}

@@ -24,6 +24,7 @@ class MyApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         // جودة الفيديو المختارة سابقًا
         com.example.util.VideoQualityPrefs.load(this)
+        com.example.util.SendReceivePrefs.load(this)
         // استئناف أي مرفقات عالقة إن أُغلق التطبيق أثناء الإرسال (آمنة من التكرار بفضل المعرّف الفريد)
         try {
             androidx.work.WorkManager.getInstance(this).enqueueUniqueWork(

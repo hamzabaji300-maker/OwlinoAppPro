@@ -118,6 +118,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:${media3_version}")
     implementation("androidx.media3:media3-ui:${media3_version}")
     implementation("androidx.media3:media3-database:${media3_version}")
+    // الإرسال القريب بدون إنترنت (بلوتوث + Wi-Fi مباشر)
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
     // ضغط الفيديو على الهاتف قبل الرفع (720p بمعدل بتات معتدل)
     implementation("androidx.media3:media3-transformer:${media3_version}")
     implementation("androidx.media3:media3-effect:${media3_version}")

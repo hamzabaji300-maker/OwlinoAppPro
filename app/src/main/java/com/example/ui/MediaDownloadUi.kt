@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -105,6 +106,15 @@ fun DownloadableImage(
     val expired = localPath == null && !isLocalUri &&
         (com.example.util.MediaExpiry.isExpired(att.url) ||
             (dl is MediaDlState.Failed && dl.reason == "expired"))
+
+    // تنزيل تلقائي حسب إعدادات «الإرسال والاستقبال» (نوع الشبكة + نوع الملف + الحجم)؛ بعد الفشل لا نعيد تلقائيًا
+    LaunchedEffect(att.messageId, ready, localPath, expired, dl == null) {
+        if (!isMe && ready && localPath == null && !isLocalUri && !isDirectRemote && !expired && dl == null &&
+            com.example.util.SendReceivePrefs.allowsAutoDownload(context, att)
+        ) {
+            MediaDownloadManager.download(context, att)
+        }
+    }
 
     Box(modifier = modifier) {
         // أثناء تجهيز ورفع المرسل: نسبة التقدم فوق الصورة/الفيديو
