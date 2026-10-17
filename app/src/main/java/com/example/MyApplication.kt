@@ -53,6 +53,21 @@ class MyApplication : Application(), ImageLoaderFactory {
             }
         } catch (e: Throwable) {}
 
+        // الصور الشخصية للمحادثات المحفوظة تُحمَّل مسبقًا في الخلفية: تظهر فورًا عند فتح التطبيق
+        try {
+            Thread {
+                try {
+                    com.example.ui.AvatarPrefetch.prefetch(
+                        applicationContext,
+                        com.example.ui.ChatListCache.loadChats(applicationContext)?.map { it.avatarUrl } ?: emptyList()
+                    )
+                } catch (e: Throwable) {}
+            }.apply {
+                priority = Thread.NORM_PRIORITY - 1
+                start()
+            }
+        } catch (e: Throwable) {}
+
         // عودة الشبكة => Prefetch (لا اتصال جديد بالسيرفر؛ فقط تشغيل Worker موجود)
         try {
             val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager

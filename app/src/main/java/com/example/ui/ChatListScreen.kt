@@ -357,7 +357,7 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
 
     val chatsList = remember(roomChats, newCachedChatsRaw, deletedDummyIds, cachedScreenChats, isInitialLoad) {
         if (isInitialLoad && cachedScreenChats != null && cachedScreenChats.isNotEmpty()) {
-            return@remember cachedScreenChats.filter { it.id !in deletedDummyIds && (it.id == FAKE_CHANNEL_ID || !it.id.startsWith("dummy_")) }
+            return@remember cachedScreenChats.filter { it.id !in deletedDummyIds && (it.id == FAKE_CHANNEL_ID || !it.id.startsWith("dummy_")) && !it.isEmptyConversation() }
         }
         
         // القناة الرسمية صارت حقيقية: تأتي من Supabase مثل أي محادثة (لا قائمة افتراضية هنا)
@@ -376,12 +376,20 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
         }
         
         val combined = (roomChatsModels + realChatsModels + defaults).distinctBy { it.id }.sortedByDescending { it.timestamp }
-        combined.filter { it.id !in deletedDummyIds && (it.id == FAKE_CHANNEL_ID || !it.id.startsWith("dummy_")) }
+        combined.filter { it.id !in deletedDummyIds && (it.id == FAKE_CHANNEL_ID || !it.id.startsWith("dummy_")) && !it.isEmptyConversation() }
     }
     
     LaunchedEffect(chatsList) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             ChatListCache.saveChats(context, chatsList)
+        }
+    }
+
+    // الصور الشخصية تُحمَّل مسبقًا لكل المحادثات، فتظهر فورًا بلا تأخير عند التمرير
+    LaunchedEffect(chatsList?.map { it.avatarUrl }) {
+        val urls = chatsList?.map { it.avatarUrl } ?: emptyList()
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.example.ui.AvatarPrefetch.prefetch(context, urls)
         }
     }
 
@@ -496,6 +504,57 @@ fun ChatListScreen(onChatClick: (String, String, Boolean) -> Unit, onDiscoverUse
             }
 
             val myId = supabase.auth.currentUserOrNull()?.id ?: return@withContext
+
+            // مزامنة سريعة: فقط الرسائل الأحدث مما نعرفه محليًا (طلب صغير)، فيتحدّث ترتيب القائمة وآخر رسالة
+            // خلال لحظات من فتح التطبيق، دون انتظار المزامنة الكاملة الأثقل بالأسفل.
+            try {
+                val newestKnown = maxOf(
+                    roomChats?.maxOfOrNull { it.timestamp } ?: 0L,
+                    cachedScreenChats?.maxOfOrNull { it.timestamp } ?: 0L
+                )
+                if (newestKnown > 0L) {
+                    val sinceIso = java.time.Instant.ofEpochMilli(newestKnown).toString()
+                    val fresh = supabase.postgrest["messages"].select() {
+                        filter { gt("created_at", sinceIso) }
+                        order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                        limit(200)
+                    }.decodeList<MessageRow>()
+                    for ((cid, msgs) in fresh.groupBy { it.chat_id }) {
+                        val existing = chatDao.getChatById(cid) ?: continue
+                        val latest = msgs.first()
+                        val ts = parseTimestampSafe(latest.created_at)
+                        if (ts <= existing.timestamp) continue // وصلت أصلًا عبر التحديث المباشر
+                        val unreadAdd = if (cid == com.example.ui.GlobalAppState.openChatId) 0 else msgs.count { it.sender_id != myId }
+                        val updated = existing.copy(
+                            message = latest.content,
+                            time = formatTimeSafe(latest.created_at),
+                            timestamp = ts,
+                            unreadCount = existing.unreadCount + unreadAdd,
+                            isMine = latest.sender_id == myId,
+                            isReadReceipt = false,
+                            lastMediaType = latest.message_type,
+                            lastMediaUrl = latest.media_url,
+                            lastThumbnailUrl = latest.thumbnail_url
+                        )
+                        chatDao.insert(updated)
+                        cachedChatDao.insertCachedChats(listOf(
+                            com.example.cache.CachedChat(
+                                chat_id = updated.id,
+                                name = updated.name,
+                                last_message = updated.message,
+                                time_str = updated.time,
+                                timestamp = updated.timestamp,
+                                unread_count = updated.unreadCount
+                            )
+                        ))
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
             try {
                 liveMyProfile = supabase.postgrest["profiles"].select { filter { eq("id", myId) } }.decodeSingleOrNull<Profile>()
                 // Refresh block state via BlockManager (updates StateFlows + Room atomically)
@@ -1952,6 +2011,20 @@ fun highlightQuery(text: String, query: String, color: Color, highlightColor: Co
     }
 }
 
+/** true = أخفِ أيضًا المجموعات والقنوات الفارغة (بلا أي رسالة). false = تبقى ظاهرة ليجد صاحبها القناة/المجموعة بعد إنشائها. */
+private const val HIDE_EMPTY_GROUPS_AND_CHANNELS = false
+
+/**
+ * محادثة بلا أي فقاعة (لا رسالة ولا وسائط ولا مسودة): لا تظهر في القائمة، مثل تيليجرام وفايبر؛
+ * تظهر المحادثة بمجرد وصول أول رسالة أو إرسالها.
+ */
+private fun ChatModel.isEmptyConversation(): Boolean {
+    if (isNotes || isBot) return false
+    if (id == FAKE_CHANNEL_ID || id == OFFICIAL_CHANNEL_ID) return false
+    if ((isGroup || isChannel) && !HIDE_EMPTY_GROUPS_AND_CHANNELS) return false
+    return message.isBlank() && lastMediaType.isNullOrBlank() && draft.isBlank()
+}
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ChatItem(
@@ -2043,21 +2116,32 @@ fun ChatItem(
                     coil.request.ImageRequest.Builder(context)
                         .data(avatarUrl)
                         .crossfade(false)
-                        
                         .memoryCacheKey(avatarUrl)
                         .diskCacheKey(avatarUrl)
                         .build()
                 }
-                coil.compose.AsyncImage(
-                    model = imageRequest,
-                    contentDescription = "Profile Picture",
+                // أثناء تحميل الصورة يظهر حرف الاسم على خلفية محايدة (لا دائرة سوداء)؛ تغطيه الصورة فور وصولها
+                Box(
                     modifier = androidx.compose.ui.Modifier
                         .size(56.dp)
                         .graphicsLayer { shadowElevation = 3.dp.toPx(); shape = CircleShape; clip = false }
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onBackground),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                )
+                        .background(if (isDark) Color(0xFF2C2C2C) else MaterialTheme.colorScheme.outlineVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = name.take(1).uppercase(),
+                        color = MaterialTheme.colorScheme.background,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    coil.compose.AsyncImage(
+                        model = imageRequest,
+                        contentDescription = "Profile Picture",
+                        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                }
             } else if (isDefaultAvatar) {
                 Box(
                     modifier = androidx.compose.ui.Modifier
