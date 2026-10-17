@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -275,8 +276,12 @@ fun RdTabStrip(
         val layouts = remember(labels, density) { labels.map { measurer.measure(AnnotatedString(it), style) } }
         val select = rememberUpdatedState(onSelect)
         val scroll = rememberScrollState()
-        val pillCol = RdColors.pill(isDark)
-        val blue = RdColors.blue(isDark)
+        // لون الفلاتر يتبع لون التمييز (accent) من الإعدادات، ويُضبط ليبقى النص مقروءًا في الوضعين
+        val accent = com.example.ui.LocalSettingsTheme.current.accent
+        val lum = accent.luminance()
+        val pillCol = accent.copy(alpha = if (isDark) 0.30f else 0.16f)
+        val blue = if (isDark) lerp(accent, Color.White, if (lum < 0.35f) 0.45f else 0.15f)
+                   else lerp(accent, Color.Black, if (lum > 0.45f) 0.5f else 0.12f)
         val grey = RdColors.greyTab(isDark)
 
         BoxWithConstraints(modifier.fillMaxWidth().height(46.dp)) {

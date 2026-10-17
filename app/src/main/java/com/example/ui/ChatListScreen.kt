@@ -1912,8 +1912,8 @@ fun ChatList(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Outlined.Chat, contentDescription = "No Chats", modifier = androidx.compose.ui.Modifier.size(64.dp), tint = Color.LightGray)
-                    Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
+                    com.example.ui.EmptyBoxAnimation(size = 120.dp)
+                    Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     Text(emptyMessage, fontSize = 20.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

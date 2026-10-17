@@ -111,6 +111,7 @@ fun DiscoverUsersBody(
     var botIdSet by remember { mutableStateOf(setOf<String>()) }
     var channelCounts by remember { mutableStateOf(mapOf<String, Long>()) }
     var searchResults by remember { mutableStateOf<List<Profile>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -134,11 +135,17 @@ fun DiscoverUsersBody(
 
     LaunchedEffect(searchQuery) { queryFlow.value = searchQuery }
     LaunchedEffect(selectedTab) { tabFlow.value = selectedTab }
+    // بمجرد تغيير النص أو التبويب نعتبر البحث جاريًا: لا تظهر «لا توجد نتائج» قبل وصول النتائج
+    LaunchedEffect(searchQuery, selectedTab) { isLoading = true }
 
     LaunchedEffect(Unit) {
+        var ticket = 0
         kotlinx.coroutines.flow.combine(queryFlow, tabFlow) { q, tab -> Pair(q, tab) }
             .debounce(300)
             .collectLatest { (query, tab) ->
+                val myTicket = ++ticket
+                isLoading = true
+                try {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
                         if (query.isBlank() && tab == 2) {
@@ -160,13 +167,19 @@ fun DiscoverUsersBody(
                             } catch (e: Exception) { e.printStackTrace() }
                             searchResults = chs
                         } else if (query.isBlank()) {
-                            val res = supabase.postgrest["profiles"].select {
-                                filter {
-                                    filterNot("id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, "00000000-0000-0000-0000-000000000000")
-                                    if (currentUser != null) neq("id", currentUser.id)
-                                }
-                                limit(20)
-                            }.decodeList<Profile>()
+                            // بلا كتابة: كل تبويب يعرض نتائجه مباشرة (أشخاص / قنوات / بوتات)
+                            val people = mutableListOf<Profile>()
+                            if (tab == 0 || tab == 1) {
+                                try {
+                                    people.addAll(supabase.postgrest["profiles"].select {
+                                        filter {
+                                            filterNot("id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, "00000000-0000-0000-0000-000000000000")
+                                            if (currentUser != null) neq("id", currentUser.id)
+                                        }
+                                        limit(20)
+                                    }.decodeList<Profile>())
+                                } catch (e: Exception) { e.printStackTrace() }
+                            }
                             // تبويب "All" بدون كتابة: نضيف أشهر القنوات أيضاً حتى يراها الناس مباشرة
                             val topChannels = mutableListOf<Profile>()
                             if (tab == 0) {
@@ -186,7 +199,24 @@ fun DiscoverUsersBody(
                                     }
                                 } catch (e: Exception) { e.printStackTrace() }
                             }
-                            searchResults = topChannels + res
+                            // البوتات تظهر مباشرة عند فتح البحث (تبويب All وتبويب Bots)
+                            val bots = mutableListOf<Profile>()
+                            if (tab == 0 || tab == 3) {
+                                suspend fun fetchBots(q: String): List<kotlinx.serialization.json.JsonObject> =
+                                    supabase.postgrest.rpc("search_bots", buildJsonObject { put("q", q) })
+                                        .decodeList<kotlinx.serialization.json.JsonObject>()
+                                var botRes: List<kotlinx.serialization.json.JsonObject> = try { fetchBots("") } catch (e: Exception) { e.printStackTrace(); emptyList() }
+                                // إن كانت دالة السيرفر ترفض النص الفارغ نجرّب محرف يطابق كل شيء
+                                if (botRes.isEmpty()) botRes = try { fetchBots("%") } catch (e: Exception) { emptyList() }
+                                botRes.forEach { obj ->
+                                    val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: ""
+                                    if (id.isNotBlank()) {
+                                        botIdSet = botIdSet + id
+                                        bots.add(Profile(id = id, fullName = obj["name"]?.jsonPrimitive?.contentOrNull ?: "", avatarUrl = obj["avatar_url"]?.jsonPrimitive?.contentOrNull, username = obj["username"]?.jsonPrimitive?.contentOrNull))
+                                    }
+                                }
+                            }
+                            searchResults = topChannels + bots + people
                         } else {
                             val profiles = mutableListOf<Profile>()
                             
@@ -241,8 +271,8 @@ fun DiscoverUsersBody(
                                     res.forEach { obj ->
                                         val id = obj["id"]?.jsonPrimitive?.content ?: ""
                                         val name = obj["name"]?.jsonPrimitive?.content ?: ""
-                                        val avatarUrl = obj["avatar_url"]?.jsonPrimitive?.content
-                                        val username = obj["username"]?.jsonPrimitive?.content
+                                        val avatarUrl = obj["avatar_url"]?.jsonPrimitive?.contentOrNull
+                                        val username = obj["username"]?.jsonPrimitive?.contentOrNull
                                         if (id.isNotBlank()) {
                                             botIdSet = botIdSet + id
                                             profiles.add(Profile(id = id, fullName = name, avatarUrl = avatarUrl, username = username))
@@ -256,6 +286,9 @@ fun DiscoverUsersBody(
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
+                }
+                } finally {
+                    if (myTicket == ticket) isLoading = false
                 }
             }
     }
@@ -336,7 +369,13 @@ fun DiscoverUsersBody(
                 if (listState.isScrollInProgress) keyboardController?.hide()
             }
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                if (pageResults.isEmpty()) {
+                if (pageResults.isEmpty() && isLoading && page != 2) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(top = 120.dp), contentAlignment = Alignment.TopCenter) {
+                            CircularProgressIndicator(color = __accent, strokeWidth = 2.5.dp, modifier = Modifier.size(30.dp))
+                        }
+                    }
+                } else if (pageResults.isEmpty()) {
                     item {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(top = 90.dp),
