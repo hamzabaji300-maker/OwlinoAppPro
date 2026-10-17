@@ -77,20 +77,48 @@ object NearbyShare {
     private val filePayloads = ConcurrentHashMap<Long, Payload>()
 
     // ───────── الصلاحيات ─────────
+    /**
+     * الأذونات المطلوبة وقت التشغيل. مكتبة Nearby تشترط إذن الموقع (ACCESS_COARSE_LOCATION) على كل الإصدارات
+     * حتى الحديثة (الخطأ 8034)، لذلك نطلب الموقع الدقيق والتقريبي معًا (مطلوب في أندرويد 12+)،
+     * مع أذونات البلوتوث (12+) و«الأجهزة القريبة» (13+). لا يتم تتبع موقعك.
+     */
     fun requiredPermissions(): List<String> {
         val l = mutableListOf<String>()
+        l += Manifest.permission.ACCESS_FINE_LOCATION
+        l += Manifest.permission.ACCESS_COARSE_LOCATION
         if (Build.VERSION.SDK_INT >= 31) {
             l += Manifest.permission.BLUETOOTH_ADVERTISE
             l += Manifest.permission.BLUETOOTH_CONNECT
             l += Manifest.permission.BLUETOOTH_SCAN
         }
         if (Build.VERSION.SDK_INT >= 33) l += Manifest.permission.NEARBY_WIFI_DEVICES
-        if (Build.VERSION.SDK_INT <= 32) l += Manifest.permission.ACCESS_FINE_LOCATION
         return l
     }
 
-    fun hasPermissions(context: Context): Boolean =
-        requiredPermissions().all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
+    private fun granted(context: Context, perm: String) =
+        ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+
+    /** يكفي أحد إذني الموقع (إن اختار المستخدم «تقريبي» يُمنح coarse فقط)، وباقي الأذونات كلها مطلوبة. */
+    fun hasPermissions(context: Context): Boolean {
+        val locationOk = granted(context, Manifest.permission.ACCESS_COARSE_LOCATION) ||
+            granted(context, Manifest.permission.ACCESS_FINE_LOCATION)
+        val others = requiredPermissions().filter {
+            it != Manifest.permission.ACCESS_FINE_LOCATION && it != Manifest.permission.ACCESS_COARSE_LOCATION
+        }.all { granted(context, it) }
+        return locationOk && others
+    }
+
+    private fun friendlyError(prefix: String, e: Exception): String {
+        val m = e.message ?: ""
+        val hint = when {
+            m.contains("LOCATION", true) || m.contains("MISSING_PERMISSION", true) ->
+                " — امنح التطبيق إذن الموقع والأجهزة القريبة من إعدادات الهاتف، وفعّل خدمة الموقع (GPS) ثم أعد المحاولة."
+            m.contains("BLUETOOTH", true) || m.contains("8038", true) || m.contains("8001", true) ->
+                " — تأكد من تشغيل البلوتوث والواي فاي."
+            else -> ""
+        }
+        return "$prefix: $m$hint"
+    }
 
     // ───────── التحكم ─────────
     private fun ensureClient(context: Context): ConnectionsClient {
@@ -124,7 +152,7 @@ object NearbyShare {
         val options = AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
         c.startAdvertising(name, SERVICE_ID, connectionCallback, options)
             .addOnSuccessListener { _mode.value = Mode.RECEIVING }
-            .addOnFailureListener { e -> _mode.value = Mode.IDLE; _info.value = "تعذّر بدء الاستقبال: ${e.message ?: ""}" }
+            .addOnFailureListener { e -> _mode.value = Mode.IDLE; _info.value = friendlyError("تعذّر بدء الاستقبال", e) }
     }
 
     /** وضع الإرسال: يبحث عن الهواتف القريبة، وبعد الاتصال يرسل [uris]. */
@@ -137,12 +165,12 @@ object NearbyShare {
         val options = DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
         c.startDiscovery(SERVICE_ID, discoveryCallback, options)
             .addOnSuccessListener { _mode.value = Mode.SENDING }
-            .addOnFailureListener { e -> _mode.value = Mode.IDLE; _info.value = "تعذّر البحث عن الأجهزة: ${e.message ?: ""}" }
+            .addOnFailureListener { e -> _mode.value = Mode.IDLE; _info.value = friendlyError("تعذّر البحث عن الأجهزة", e) }
     }
 
     fun connectTo(peer: Peer) {
         client?.requestConnection(deviceName, peer.id, connectionCallback)
-            ?.addOnFailureListener { e -> _info.value = "تعذّر الاتصال: ${e.message ?: ""}" }
+            ?.addOnFailureListener { e -> _info.value = friendlyError("تعذّر الاتصال", e) }
     }
 
     fun acceptIncoming() {
