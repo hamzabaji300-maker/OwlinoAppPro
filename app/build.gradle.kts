@@ -117,6 +117,7 @@ dependencies {
     val media3_version = "1.3.1"
     implementation("androidx.media3:media3-exoplayer:${media3_version}")
     implementation("androidx.media3:media3-ui:${media3_version}")
+    implementation("androidx.media3:media3-database:${media3_version}")
     // ضغط الفيديو على الهاتف قبل الرفع (720p بمعدل بتات معتدل)
     implementation("androidx.media3:media3-transformer:${media3_version}")
     implementation("androidx.media3:media3-effect:${media3_version}")

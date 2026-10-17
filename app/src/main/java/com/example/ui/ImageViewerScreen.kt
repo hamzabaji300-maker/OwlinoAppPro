@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.Share
@@ -246,6 +247,75 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawWhiskerRight(
 sealed class ViewerSlide {
     object Cat : ViewerSlide()
     data class Remote(val messageId: String, val url: String) : ViewerSlide()
+    data class Video(val messageId: String, val url: String, val thumbnailUrl: String?) : ViewerSlide()
+}
+
+/** صفحة فيديو داخل عارض الصور: صورة مصغّرة، ثم يبدأ التشغيل تلقائيًا عندما تصبح الصفحة الحالية. */
+@Composable
+private fun ViewerVideoPage(
+    slide: ViewerSlide.Video,
+    isCurrent: Boolean,
+    controlsVisible: Boolean,
+    onToggleControls: () -> Unit,
+    onHideControls: () -> Unit
+) {
+    val context = LocalContext.current
+    val files by MediaIndex.files.collectAsState()
+    val localPath = files[slide.messageId]?.takeIf { java.io.File(it).exists() }
+    val source = localPath ?: slide.url
+    var started by remember { mutableStateOf(false) }
+    LaunchedEffect(isCurrent) { if (isCurrent) started = true }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        if (isCurrent && started && source.isNotEmpty()) {
+            VideoPlayerContent(
+                source = source,
+                controlsVisible = controlsVisible,
+                onToggleControls = onToggleControls,
+                onHideControls = onHideControls,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            val thumbModel: Any? = when {
+                localPath != null -> java.io.File(localPath)
+                slide.thumbnailUrl != null -> rememberMediaSource(context, slide.messageId, slide.thumbnailUrl, isThumbnail = true)
+                else -> null
+            }
+            if (thumbModel != null) {
+                AsyncImage(
+                    model = coil.request.ImageRequest.Builder(context)
+                        .data(thumbModel)
+                        .setParameter("coil#video_frame_micros", 500_000L)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) { detectTapGestures(onTap = { onToggleControls() }) },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(68.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { started = true }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = "تشغيل", tint = Color.White, modifier = Modifier.size(42.dp))
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -303,11 +373,13 @@ fun ImageViewerScreen(
         }
     }
 
-    val slides = remember(imageMessages) {
-        if (imageMessages.isEmpty()) listOf(ViewerSlide.Cat)
+    val slides: List<ViewerSlide> = remember(imageMessages) {
+        if (imageMessages.isEmpty()) listOf<ViewerSlide>(ViewerSlide.Cat)
         else imageMessages.map { msg ->
-            val url = msg.attachments.firstOrNull { it.type == AttachmentType.IMAGE }?.url ?: ""
-            ViewerSlide.Remote(msg.attachments.firstOrNull { it.type == com.example.ui.AttachmentType.IMAGE }?.messageId ?: msg.id, url)
+            val att = msg.attachments.firstOrNull { it.type == AttachmentType.IMAGE || it.type == AttachmentType.VIDEO }
+            val id = att?.messageId ?: msg.id
+            if (att?.type == AttachmentType.VIDEO) ViewerSlide.Video(id, att.url, att.thumbnailUrl)
+            else ViewerSlide.Remote(id, att?.url ?: "")
         }
     }
 
@@ -339,8 +411,17 @@ fun ImageViewerScreen(
         ) { page ->
             var scale by remember { mutableStateOf(1f) }
             var offset by remember { mutableStateOf(Offset.Zero) }
+            val pageSlide = slides.getOrNull(page)
 
-            Box(
+            if (pageSlide is ViewerSlide.Video) {
+                ViewerVideoPage(
+                    slide = pageSlide,
+                    isCurrent = pagerState.settledPage == page,
+                    controlsVisible = showControls,
+                    onToggleControls = { showControls = !showControls },
+                    onHideControls = { showControls = false }
+                )
+            } else Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
@@ -403,6 +484,7 @@ fun ImageViewerScreen(
                 ) {
                     when (val slide = slides.getOrNull(page)) {
                         is ViewerSlide.Cat -> CatArt(modifier = Modifier.fillMaxSize())
+                        is ViewerSlide.Video -> {}
                         is ViewerSlide.Remote -> AsyncImage(
                             model = coil.request.ImageRequest.Builder(context)
                                 .data(rememberMediaSource(context, slide.messageId, slide.url))

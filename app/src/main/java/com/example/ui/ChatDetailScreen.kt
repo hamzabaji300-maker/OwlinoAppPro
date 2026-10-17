@@ -3219,7 +3219,7 @@ isNowSaved) else it }
 
     if (previewImageId != null) {
         val imageMessages = remember(messages) {
-            messages.filter { msg -> msg.attachments.any { it.type == AttachmentType.IMAGE } }.sortedBy { it.timestamp }
+            messages.filter { msg -> msg.attachments.any { it.type == AttachmentType.IMAGE || it.type == AttachmentType.VIDEO } }.sortedBy { it.timestamp }
         }
         val initialIndex = imageMessages.indexOfFirst { msg ->
             msg.id == previewImageId || msg.attachments.any { it.messageId == previewImageId }
@@ -3265,8 +3265,39 @@ isNowSaved) else it }
                 }
             },
             onSaveToGallery = { msg ->
+                val videoAtt = msg.attachments.firstOrNull { it.type == AttachmentType.VIDEO }
                 val url = msg.attachments.firstOrNull { it.type == AttachmentType.IMAGE }?.url
-                if (!url.isNullOrEmpty()) {
+                if (videoAtt != null) {
+                    // فيديو: ننسخ الملف المحمَّل على الهاتف إلى معرض الفيديو
+                    val localPath = com.example.ui.MediaIndex.files.value[videoAtt.messageId]
+                    if (localPath == null || !java.io.File(localPath).exists()) {
+                        android.widget.Toast.makeText(context, "نزّل الفيديو أولاً ثم احفظه", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                val resolver = context.contentResolver
+                                val cv = android.content.ContentValues().apply {
+                                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "VID_${System.currentTimeMillis()}.mp4")
+                                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_MOVIES)
+                                }
+                                val outUri = resolver.insert(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv)
+                                if (outUri != null) {
+                                    java.io.File(localPath).inputStream().use { input ->
+                                        resolver.openOutputStream(outUri)?.use { output -> input.copyTo(output) }
+                                    }
+                                }
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    android.widget.Toast.makeText(context, if (outUri != null) "تم الحفظ في المعرض" else "فشل الحفظ", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    android.widget.Toast.makeText(context, "فشل الحفظ", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                } else if (!url.isNullOrEmpty()) {
                     val uri = android.net.Uri.parse(url)
                     val scheme = uri.scheme
                     if (scheme == "http" || scheme == "https") {

@@ -1,6 +1,8 @@
 package com.example.ui
 
+import android.content.Context
 import android.graphics.drawable.ColorDrawable
+import android.os.Build
 import android.net.Uri
 import android.view.WindowManager
 import androidx.compose.animation.AnimatedVisibility
@@ -58,6 +60,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -65,10 +68,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -91,24 +98,38 @@ private fun fmtTime(ms: Long): String {
 private fun skipLabel(deltaMs: Long): String {
     val a = kotlin.math.abs(deltaMs)
     val n = if (a >= 60_000L) "${a / 60_000L}د" else "${a / 1000L}ث"
-    return if (deltaMs > 0) "+$n" else "−$n"
+    return "\u200E" + (if (deltaMs > 0) "+$n" else "−$n")
+}
+
+/** كاش على قرص الهاتف: ما يُبثّ من الفيديو يُحفظ ولا يُحمَّل ثانية عند إعادة الفتح (حتى لو شاهدت جزءًا منه فقط). */
+@OptIn(UnstableApi::class)
+private object VideoDiskCache {
+    @Volatile private var cache: SimpleCache? = null
+    fun get(context: Context): SimpleCache = cache ?: synchronized(this) {
+        cache ?: SimpleCache(
+            File(context.applicationContext.cacheDir, "video_cache"),
+            LeastRecentlyUsedCacheEvictor(500L * 1024L * 1024L),
+            StandaloneDatabaseProvider(context.applicationContext)
+        ).also { cache = it }
+    }
 }
 
 private fun toPlayableUri(source: String): Uri =
     if (source.startsWith("/")) Uri.fromFile(File(source)) else Uri.parse(source)
 
 /**
- * مشغّل فيديو كامل الشاشة داخل التطبيق.
+ * محتوى المشغّل بلا شريط علوي ولا نافذة: يُستعمل داخل عارض الصور (تمرير بين الصور والفيديوهات) وداخل [VideoPlayerDialog].
  * source: مسار ملف محلي، أو content:// ، أو file:// ، أو رابط بعيد (يُضاف له توكن الجلسة تلقائيًا لروابط الـ Worker).
  * يدعم: تشغيل/إيقاف، نقر مزدوج يمين/يسار = ±10 ثوانٍ، أزرار ±10 ثوانٍ و±1 دقيقة، وشريط تمرير لأي موضع.
  */
 @OptIn(UnstableApi::class)
 @Composable
-fun VideoPlayerDialog(
+fun VideoPlayerContent(
     source: String,
-    title: String,
-    subtitle: String,
-    onDismiss: () -> Unit
+    controlsVisible: Boolean,
+    onToggleControls: () -> Unit,
+    onHideControls: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -126,8 +147,16 @@ fun VideoPlayerDialog(
             val h = MediaAuth.headersFor(source)
             if (h.isEmpty()) spec else spec.withAdditionalHeaders(h)
         }
+        val isRemote = source.startsWith("http://") || source.startsWith("https://")
+        val finalFactory: androidx.media3.datasource.DataSource.Factory = if (isRemote) {
+            CacheDataSource.Factory()
+                .setCache(VideoDiskCache.get(context))
+                .setUpstreamDataSourceFactory(resolving)
+                .setCacheKeyFactory { spec -> spec.uri.toString().substringBefore('?') }
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        } else resolving
         ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(resolving))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(finalFactory))
             .build()
             .apply {
                 setMediaItem(MediaItem.fromUri(toPlayableUri(source)))
@@ -141,7 +170,6 @@ fun VideoPlayerDialog(
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var errorText by remember { mutableStateOf<String?>(null) }
-    var showControls by remember { mutableStateOf(true) }
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableStateOf(0f) }
     var toast by remember { mutableStateOf<String?>(null) }
@@ -157,7 +185,6 @@ fun VideoPlayerDialog(
                     if (player.duration > 0) durationMs = player.duration
                     errorText = null
                 }
-                if (state == Player.STATE_ENDED) showControls = true
             }
             override fun onPlayerError(error: PlaybackException) {
                 val c = error.cause
@@ -200,10 +227,10 @@ fun VideoPlayerDialog(
         }
     }
     // إخفاء الأزرار تلقائيًا بعد 3 ثوانٍ أثناء التشغيل
-    LaunchedEffect(showControls, isPlaying, interaction, dragging) {
-        if (showControls && isPlaying && !dragging) {
+    LaunchedEffect(controlsVisible, isPlaying, interaction, dragging) {
+        if (controlsVisible && isPlaying && !dragging) {
             delay(3000)
-            showControls = false
+            onHideControls()
         }
     }
     LaunchedEffect(toast) {
@@ -234,174 +261,216 @@ fun VideoPlayerDialog(
         interaction++
     }
 
+    // أزرار التحكم والشريط دائمًا من اليسار لليمين مهما كانت لغة التطبيق
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Box(modifier = modifier.background(Color.Black)) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        setShutterBackgroundColor(android.graphics.Color.BLACK)
+                        this.player = player
+                    }
+                },
+                update = { it.player = player },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // طبقة اللمس: نقرة = إظهار/إخفاء الأزرار، نقرتان = ±10 ثوانٍ
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(player) {
+                        detectTapGestures(
+                            onTap = { onToggleControls() },
+                            onDoubleTap = { o ->
+                                if (o.x < size.width / 2f) skip(-10_000L) else skip(10_000L)
+                            }
+                        )
+                    }
+            )
+
+            if (buffering && errorText == null) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.Center).size(46.dp)
+                )
+            }
+
+            if (errorText != null) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(errorText ?: "", color = Color.White, fontSize = 16.sp)
+                    Button(
+                        onClick = {
+                            errorText = null
+                            authRetried = false
+                            player.prepare()
+                            player.play()
+                        },
+                        modifier = Modifier.padding(top = 12.dp)
+                    ) { Text("إعادة المحاولة") }
+                }
+            }
+
+            toast?.let { t ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
+                        .padding(horizontal = 18.dp, vertical = 8.dp)
+                ) { Text(t, color = Color.White, fontSize = 18.sp) }
+            }
+
+            AnimatedVisibility(
+                visible = controlsVisible,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    // الأزرار الوسطى: -1د  -10ث  تشغيل/إيقاف  +10ث  +1د
+                    Row(
+                        modifier = Modifier.align(Alignment.Center),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        IconButton(onClick = { skip(-60_000L) }) {
+                            Text("\u200E−1د", color = Color.White, fontSize = 14.sp)
+                        }
+                        IconButton(onClick = { skip(-10_000L) }) {
+                            Icon(Icons.Filled.Replay10, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
+                        }
+                        IconButton(
+                            onClick = { togglePlay() },
+                            modifier = Modifier
+                                .size(64.dp)
+                                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50))
+                        ) {
+                            Icon(
+                                if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                        IconButton(onClick = { skip(10_000L) }) {
+                            Icon(Icons.Filled.Forward10, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
+                        }
+                        IconButton(onClick = { skip(60_000L) }) {
+                            Text("\u200E+1د", color = Color.White, fontSize = 14.sp)
+                        }
+                    }
+
+                    // الشريط السفلي: الوقت وشريط التمرير
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
+                            .navigationBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val shownPos = if (dragging) dragValue.toLong() else positionMs
+                        Text(fmtTime(shownPos), color = Color.White, fontSize = 12.sp)
+                        Slider(
+                            value = shownPos.coerceIn(0L, maxOf(durationMs, 1L)).toFloat(),
+                            onValueChange = {
+                                dragging = true
+                                dragValue = it
+                            },
+                            onValueChangeFinished = {
+                                player.seekTo(dragValue.toLong())
+                                positionMs = dragValue.toLong()
+                                dragging = false
+                                interaction++
+                            },
+                            valueRange = 0f..maxOf(durationMs, 1L).toFloat(),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = Color.White,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                            ),
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                        )
+                        Text(fmtTime(durationMs), color = Color.White, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** نافذة فيديو كاملة الشاشة (احتياطي عند عدم توفر عارض الصور). */
+@OptIn(UnstableApi::class)
+@Composable
+fun VideoPlayerDialog(
+    source: String,
+    title: String,
+    subtitle: String,
+    onDismiss: () -> Unit
+) {
+    var showControls by remember { mutableStateOf(true) }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)
     ) {
         val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
         SideEffect {
-            dialogWindow?.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
-            dialogWindow?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.BLACK))
+            dialogWindow?.let { w ->
+                w.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+                w.setBackgroundDrawable(ColorDrawable(android.graphics.Color.BLACK))
+                // تمتد الشاشة تحت شريط الحالة وشريط التنقل (ملء كامل)
+                WindowCompat.setDecorFitsSystemWindows(w, false)
+                w.statusBarColor = android.graphics.Color.TRANSPARENT
+                w.navigationBarColor = android.graphics.Color.TRANSPARENT
+                if (Build.VERSION.SDK_INT >= 28) {
+                    val lp = w.attributes
+                    lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    w.attributes = lp
+                }
+                WindowCompat.getInsetsController(w, w.decorView).apply {
+                    isAppearanceLightStatusBars = false
+                    isAppearanceLightNavigationBars = false
+                }
+            }
         }
 
-        // أزرار التحكم والشريط دائمًا من اليسار لليمين مهما كانت لغة التطبيق
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            useController = false
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            setShutterBackgroundColor(android.graphics.Color.BLACK)
-                            this.player = player
-                        }
-                    },
-                    update = { it.player = player },
+                VideoPlayerContent(
+                    source = source,
+                    controlsVisible = showControls,
+                    onToggleControls = { showControls = !showControls },
+                    onHideControls = { showControls = false },
                     modifier = Modifier.fillMaxSize()
                 )
-
-                // طبقة اللمس: نقرة = إظهار/إخفاء الأزرار، نقرتان = ±10 ثوانٍ
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(player) {
-                            detectTapGestures(
-                                onTap = { showControls = !showControls },
-                                onDoubleTap = { o ->
-                                    if (o.x < size.width / 2f) skip(-10_000L) else skip(10_000L)
-                                }
-                            )
-                        }
-                )
-
-                if (buffering && errorText == null) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        modifier = Modifier.align(Alignment.Center).size(46.dp)
-                    )
-                }
-
-                if (errorText != null) {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(errorText ?: "", color = Color.White, fontSize = 16.sp)
-                        Button(
-                            onClick = {
-                                errorText = null
-                                authRetried = false
-                                player.prepare()
-                                player.play()
-                            },
-                            modifier = Modifier.padding(top = 12.dp)
-                        ) { Text("إعادة المحاولة") }
-                    }
-                }
-
-                toast?.let { t ->
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
-                            .padding(horizontal = 18.dp, vertical = 8.dp)
-                    ) { Text(t, color = Color.White, fontSize = 18.sp) }
-                }
-
                 AnimatedVisibility(
                     visible = showControls,
                     enter = fadeIn(),
                     exit = fadeOut(),
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.align(Alignment.TopStart)
                 ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        // الشريط العلوي
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .fillMaxWidth()
-                                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
-                                .statusBarsPadding()
-                                .padding(horizontal = 8.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(onClick = onDismiss) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White)
-                            }
-                            Column(modifier = Modifier.padding(start = 8.dp)) {
-                                Text(title, color = Color.White, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (subtitle.isNotEmpty()) {
-                                    Text(subtitle, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, maxLines = 1)
-                                }
-                            }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
+                            .statusBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White)
                         }
-
-                        // الأزرار الوسطى: -1د  -10ث  تشغيل/إيقاف  +10ث  +1د
-                        Row(
-                            modifier = Modifier.align(Alignment.Center),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            IconButton(onClick = { skip(-60_000L) }) {
-                                Text("−1د", color = Color.White, fontSize = 14.sp)
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            Text(title, color = Color.White, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (subtitle.isNotEmpty()) {
+                                Text(subtitle, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, maxLines = 1)
                             }
-                            IconButton(onClick = { skip(-10_000L) }) {
-                                Icon(Icons.Filled.Replay10, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
-                            }
-                            IconButton(
-                                onClick = { togglePlay() },
-                                modifier = Modifier
-                                    .size(64.dp)
-                                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50))
-                            ) {
-                                Icon(
-                                    if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(40.dp)
-                                )
-                            }
-                            IconButton(onClick = { skip(10_000L) }) {
-                                Icon(Icons.Filled.Forward10, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
-                            }
-                            IconButton(onClick = { skip(60_000L) }) {
-                                Text("+1د", color = Color.White, fontSize = 14.sp)
-                            }
-                        }
-
-                        // الشريط السفلي: الوقت وشريط التمرير
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .fillMaxWidth()
-                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
-                                .navigationBarsPadding()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val shownPos = if (dragging) dragValue.toLong() else positionMs
-                            Text(fmtTime(shownPos), color = Color.White, fontSize = 12.sp)
-                            Slider(
-                                value = shownPos.coerceIn(0L, maxOf(durationMs, 1L)).toFloat(),
-                                onValueChange = {
-                                    dragging = true
-                                    dragValue = it
-                                },
-                                onValueChangeFinished = {
-                                    player.seekTo(dragValue.toLong())
-                                    positionMs = dragValue.toLong()
-                                    dragging = false
-                                    interaction++
-                                },
-                                valueRange = 0f..maxOf(durationMs, 1L).toFloat(),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = Color.White,
-                                    activeTrackColor = Color.White,
-                                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                                ),
-                                modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                            )
-                            Text(fmtTime(durationMs), color = Color.White, fontSize = 12.sp)
                         }
                     }
                 }

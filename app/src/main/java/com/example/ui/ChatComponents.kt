@@ -492,12 +492,14 @@ fun MessageBubble(
                     }
                 }
             } else if (msg.attachments.any { it.type == AttachmentType.VIDEO }) {
+                val __videoAtt = msg.attachments.first { it.type == AttachmentType.VIDEO }
                 VideoBubbleContent(
-                    att = msg.attachments.first { it.type == AttachmentType.VIDEO },
+                    att = __videoAtt,
                     isMe = isMe,
                     msg = msg,
                     screenWidth = screenWidth,
-                    screenHeight = screenHeight
+                    screenHeight = screenHeight,
+                    onOpenViewer = onImageClick?.let { cb -> { cb(__videoAtt.messageId) } }
                 )
             } else if (documentAtt != null) {
                 FileBubbleContent(
@@ -1593,7 +1595,8 @@ fun VideoBubbleContent(
     isMe: Boolean,
     msg: MessageModel,
     screenWidth: androidx.compose.ui.unit.Dp,
-    screenHeight: androidx.compose.ui.unit.Dp
+    screenHeight: androidx.compose.ui.unit.Dp,
+    onOpenViewer: (() -> Unit)? = null
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val files by MediaIndex.files.collectAsState()
@@ -1620,7 +1623,7 @@ fun VideoBubbleContent(
             isMe = isMe,
             isVideo = true,
             modifier = Modifier.size(width = w, height = h),
-            onOpen = { showVideoPlayer = true }
+            onOpen = { if (onOpenViewer != null) onOpenViewer() else showVideoPlayer = true }
         )
         Row(
             modifier = Modifier
